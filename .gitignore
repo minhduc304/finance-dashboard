@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+test.py
+ws_session.json
+holdings_cache.json
+DOCUMENTATION.md
