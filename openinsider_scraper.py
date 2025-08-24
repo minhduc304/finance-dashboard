@@ -12,6 +12,9 @@ import json
 from typing import Dict, List, Set, Union, Optional
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
+import gc
+import psutil
+import os
 
 @dataclass
 class ScraperConfig:
@@ -35,6 +38,8 @@ class ScraperConfig:
     cache_enabled: bool
     cache_dir: str
     cache_max_age: int
+    chunk_size: int = 5000  # Save every N records
+    memory_limit_mb: int = 1000  # Memory limit
 
 class OpenInsiderScraper:
     def __init__(self, config_path: str = 'config.yaml'):
@@ -42,6 +47,9 @@ class OpenInsiderScraper:
         self._setup_logging()
         self._setup_directories()
         self.logger = logging.getLogger('openinsider')
+        self.session = requests.Session()  # Reuse connections
+        self.failed_months = []  # Track failures
+        self.saved_chunks = 0
         
     def _load_config(self, config_path: str) -> ScraperConfig:
         with open(config_path, 'r') as f:
@@ -66,7 +74,9 @@ class OpenInsiderScraper:
             max_log_size=config['logging']['max_log_size'],
             cache_enabled=config['cache']['enabled'],
             cache_dir=config['cache']['directory'],
-            cache_max_age=config['cache']['max_age']
+            cache_max_age=config['cache']['max_age'],
+            chunk_size=config.get('scraping', {}).get('chunk_size', 5000),
+            memory_limit_mb=config.get('scraping', {}).get('memory_limit_mb', 1000)
         )
     
     def _setup_logging(self) -> None:
@@ -87,7 +97,6 @@ class OpenInsiderScraper:
         logger.setLevel(log_level)
         logger.addHandler(handler)
         
-        # Add console output
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
@@ -97,9 +106,47 @@ class OpenInsiderScraper:
         if self.config.cache_enabled:
             Path(self.config.cache_dir).mkdir(parents=True, exist_ok=True)
     
+    def _check_memory(self) -> bool:
+        """Check if memory usage exceeds limit"""
+        process = psutil.Process(os.getpid())
+        memory_mb = process.memory_info().rss / 1024 / 1024
+        return memory_mb > self.config.memory_limit_mb
+    
+    def _save_chunk(self, data: List[tuple], is_final: bool = False) -> None:
+        """Save data in chunks to manage memory"""
+        if not data:
+            return
+            
+        field_names = ['transaction_date', 'trade_date', 'ticker', 'company_name', 
+                      'owner_name', 'Title', 'transaction_type', 'last_price', 
+                      'Qty', 'shares_held', 'Owned', 'Value']
+        
+        df = pd.DataFrame(data, columns=field_names)
+        
+        if is_final and self.saved_chunks == 0:
+            # First and only save
+            output_path = Path(self.config.output_dir) / self.config.output_file
+        else:
+            # Chunk save
+            base_name = Path(self.config.output_file).stem
+            ext = Path(self.config.output_file).suffix
+            output_path = Path(self.config.output_dir) / f"{base_name}_chunk_{self.saved_chunks}{ext}"
+        
+        try:
+            if self.config.output_format.lower() == 'csv':
+                df.to_csv(output_path, index=False)
+            elif self.config.output_format.lower() == 'parquet':
+                df.to_parquet(output_path, index=False)
+            
+            self.logger.info(f"Saved {len(data)} records to {output_path}")
+            self.saved_chunks += 1
+            
+        except Exception as e:
+            self.logger.error(f"Failed to save chunk: {str(e)}")
+    
     @retry(tries=3, delay=2, backoff=2)
     def _fetch_data(self, url: str) -> requests.Response:
-        return requests.get(url, timeout=self.config.timeout)
+        return self.session.get(url, timeout=self.config.timeout)
     
     def _get_cache_path(self, year: int, month: int) -> Path:
         return Path(self.config.cache_dir) / f"data_{year}_{month}.json"
@@ -114,8 +161,11 @@ class OpenInsiderScraper:
         cache_path = self._get_cache_path(year, month)
         
         if self.config.cache_enabled and self._is_cache_valid(cache_path):
-            with open(cache_path, 'r') as f:
-                return set(tuple(x) for x in json.load(f))
+            try:
+                with open(cache_path, 'r') as f:
+                    return set(tuple(x) for x in json.load(f))
+            except Exception as e:
+                self.logger.warning(f"Cache read failed for {month}-{year}: {str(e)}")
         
         start_date = datetime(year, month, 1).strftime('%m/%d/%Y')
         end_date = (datetime(year, month, 1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
@@ -128,81 +178,94 @@ class OpenInsiderScraper:
             soup = BeautifulSoup(response.text, 'html.parser')
             table = soup.find('table', {'class': 'tinytable'})
             if not table:
-                self.logger.error(f"No table found for {month}-{year}")
+                self.logger.warning(f"No table found for {month}-{year}")
                 return set()
                 
-            rows = table.find('tbody').find_all('tr')
+            tbody = table.find('tbody')
+            if not tbody:
+                self.logger.warning(f"No tbody found for {month}-{year}")
+                return set()
+                
+            rows = tbody.find_all('tr')
             data = set()
             
             for row in rows:
                 cols = row.find_all('td')
-                if not cols:
+                if len(cols) < 12:  # Need at least 12 columns
                     continue
                     
-                insider_data = {key: cols[index].find('a').text.strip() if cols[index].find('a') else cols[index+1].text.strip() 
-                                for index, key in enumerate(['transaction_date', 'trade_date', 'ticker', 'company_name', 
-                                                         'owner_name', 'Title', 'transaction_type', 'last_price', 'Qty', 
-                                                         'shares_held', 'Owned', 'Value'])}
-                
-                # Apply filters
-                if self._apply_filters(insider_data):
-                    data.add(tuple(insider_data.values()))
+                try:
+                    insider_data = {
+                        'transaction_date': cols[0].find('a').text.strip() if cols[0].find('a') else cols[0].text.strip(),
+                        'trade_date': cols[1].text.strip(),
+                        'ticker': cols[2].find('a').text.strip() if cols[2].find('a') else cols[2].text.strip(),
+                        'company_name': cols[3].text.strip(),
+                        'owner_name': cols[4].find('a').text.strip() if cols[4].find('a') else cols[4].text.strip(),
+                        'Title': cols[5].text.strip(),
+                        'transaction_type': cols[6].text.strip(),
+                        'last_price': cols[7].text.strip(),
+                        'Qty': cols[8].text.strip(),
+                        'shares_held': cols[9].text.strip(),
+                        'Owned': cols[10].text.strip(),
+                        'Value': cols[11].text.strip()
+                    }
+                    
+                    if self._apply_filters(insider_data):
+                        data.add(tuple(insider_data.values()))
+                        
+                except Exception as e:
+                    self.logger.debug(f"Error parsing row: {str(e)}")
+                    continue
             
             # Save cache
             if self.config.cache_enabled:
-                with open(cache_path, 'w') as f:
-                    json.dump([list(x) for x in data], f)
+                try:
+                    with open(cache_path, 'w') as f:
+                        json.dump([list(x) for x in data], f)
+                except Exception as e:
+                    self.logger.warning(f"Cache save failed for {month}-{year}: {str(e)}")
             
             return data
             
         except Exception as e:
-            self.logger.error(f"Error fetching data for {month}-{year}: {str(e)}")
+            self.logger.error(f"Failed to fetch data for {month}-{year}: {str(e)}")
+            self.failed_months.append(f"{month}-{year}")
             return set()
     
     def _clean_numeric(self, value: str) -> float:
-        """
-        Clean numeric values from strings, handling currency, percentages, and text.
-        """
         if not value or value.lower() in ['n/a', 'new']:
             return 0.0
-        # Remove currency symbols and commas
         clean = value.replace('$', '').replace(',', '')
-        # Handle percentages by removing % and converting to decimal
         if '%' in clean:
             clean = clean.replace('+', '').replace('%', '')
-            return 0.0  # We don't need the actual percentage value
+            return 0.0
         try:
             return float(clean)
         except ValueError:
-            return 0.0  # Return 0 for any non-numeric values
+            return 0.0
 
     def _apply_filters(self, data: Dict[str, str]) -> bool:
         try:
-            # Check transaction type filter
             if self.config.transaction_types and data['transaction_type'] not in self.config.transaction_types:
                 return False
                 
-            # Check excluded companies
             if data['ticker'] in self.config.exclude_companies:
                 return False
 
-            # Check included companies
             if self.config.include_companies and data['ticker'] not in self.config.include_companies:
                 return False
 
-            # Convert and check value
             value = self._clean_numeric(data['Value'])
             if value < self.config.min_transaction_value:
                 return False
                 
-            # Convert and check quantity
             shares = self._clean_numeric(data['Qty'])
             if shares < self.config.min_shares_traded:
                 return False
             
             return True
         except (ValueError, KeyError) as e:
-            self.logger.warning(f"Error filtering data: {str(e)}")
+            self.logger.debug(f"Filter error: {str(e)}")
             return False
     
     def scrape(self) -> None:
@@ -214,10 +277,6 @@ class OpenInsiderScraper:
         
         with ThreadPoolExecutor(max_workers=self.config.max_workers) as executor:
             futures = []
-            total_months = sum(
-                12 if year != current_year else current_month
-                for year in range(self.config.start_year, current_year + 1)
-            )
             
             for year in range(self.config.start_year, current_year + 1):
                 start_month = 1 if year != self.config.start_year else self.config.start_month
@@ -232,31 +291,35 @@ class OpenInsiderScraper:
                         data = future.result()
                         all_data.extend(data)
                         pbar.update(1)
+                        
+                        # Check memory and save chunk if needed
+                        if len(all_data) >= self.config.chunk_size or self._check_memory():
+                            self._save_chunk(all_data)
+                            all_data.clear()  # Clear to free memory
+                            gc.collect()  # Force garbage collection
+                            
                     except Exception as e:
-                        self.logger.error(f"Error processing month: {str(e)}")
+                        self.logger.error(f"Error processing future: {str(e)}")
+                        pbar.update(1)
         
-        self.logger.info(f"Scraping completed. Found {len(all_data)} transactions.")
-        self._save_data(all_data)
+        # Save remaining data
+        if all_data:
+            self._save_chunk(all_data, is_final=(self.saved_chunks == 0))
+        
+        # Report results
+        self.logger.info(f"Scraping completed. Total chunks saved: {self.saved_chunks}")
+        if self.failed_months:
+            self.logger.warning(f"Failed months: {', '.join(self.failed_months)}")
     
-    def _save_data(self, data: List[tuple]) -> None:
-        field_names = ['transaction_date', 'trade_date', 'ticker', 'company_name', 
-                      'owner_name', 'Title', 'transaction_type', 'last_price', 
-                      'Qty', 'shares_held', 'Owned', 'Value']
-        
-        df = pd.DataFrame(data, columns=field_names)
-        output_path = Path(self.config.output_dir) / self.config.output_file
-        
-        if self.config.output_format.lower() == 'csv':
-            df.to_csv(output_path, index=False)
-        elif self.config.output_format.lower() == 'parquet':
-            df.to_parquet(output_path, index=False)
-        
-        self.logger.info(f"Data saved to {output_path}")
+    def __del__(self):
+        """Clean up session on destruction"""
+        if hasattr(self, 'session'):
+            self.session.close()
 
 if __name__ == '__main__':
     try:
         scraper = OpenInsiderScraper()
         scraper.scrape()
     except Exception as e:
-        logging.error(f"Kritischer Fehler: {str(e)}")
+        logging.error(f"Critical error: {str(e)}")
         raise

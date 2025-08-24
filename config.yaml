@@ -1,7 +1,7 @@
 # Basic Settings
 output:
   directory: "data"
-  filename: "insider_trades.csv"
+  filename: "trades.csv"
   format: "csv"  # Possible values: csv, parquet
 
 # Scraping Settings
@@ -11,6 +11,8 @@ scraping:
   max_workers: 10   # Number of parallel downloads
   retry_attempts: 3 # Number of retry attempts on errors
   timeout: 30       # Timeout in seconds for HTTP requests
+  chunk_size: 5000        # Save every N records to manage memory
+  memory_limit_mb: 1000   # Stop and save if memory exceeds this
 
 # Filter Settings
 filters:
