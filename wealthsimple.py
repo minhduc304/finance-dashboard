@@ -2,12 +2,12 @@ import os
 import getpass
 import json
 from datetime import datetime, timedelta
-from ws_api import WealthsimpleAPI, WSAPISession, WSApiException
+from ws_api import WealthsimpleAPI, WSAPISession
 from typing import TextIO, List
 
 SESSION_FILE = 'ws_session.json'
 HOLDINGS_CACHE_FILE = 'holdings_cache.json'
-CACHE_DURATION = timedelta(days=.5)
+CACHE_DURATION = timedelta(days=.25)
 
 
 def persist_session(session_json) -> TextIO:
@@ -34,14 +34,18 @@ def show_account_activities(ws: WealthsimpleAPI, accounts: List, account_name: s
         print(f"  Amount: {activity['amount']} {activity['currency']}")
         print("-" * 20)
 
-def show_holdings_in_tfsa(ws: WealthsimpleAPI, accounts: List) -> str:
+def refresh_cache():
+    return None
+
+def show_holdings_in_tfsa(ws: WealthsimpleAPI, accounts: List, symbol_format='both') -> str:
     # Check cache first
     if os.path.exists(HOLDINGS_CACHE_FILE):
         with open(HOLDINGS_CACHE_FILE, 'r') as f:
             try:
                 cached_data = json.load(f)
                 timestamp_str = cached_data.get('timestamp')
-                if timestamp_str:
+                cache_format = cached_data.get('format', 'both')
+                if timestamp_str and cache_format == symbol_format:
                     timestamp = datetime.fromisoformat(timestamp_str)
                     if datetime.now() - timestamp < CACHE_DURATION:
                         print("\n--- Holdings for TFSA (from cache) ---")
@@ -61,12 +65,13 @@ def show_holdings_in_tfsa(ws: WealthsimpleAPI, accounts: List) -> str:
 
     if tfsa_account:
         print(f"\n--- Holdings for {tfsa_account['description']} ---")
-        balances = ws.get_account_balances(tfsa_account['id'])
+        balances = ws.get_account_balances(tfsa_account['id'], symbol_format)
         
         # Save to cache
         with open(HOLDINGS_CACHE_FILE, 'w') as f:
             cache_data = {
                 'timestamp': datetime.now().isoformat(),
+                'format': symbol_format,
                 'holdings': balances
             }
             json.dump(cache_data, f)
@@ -104,7 +109,7 @@ def main():
         print("Login successful.")
     
     accounts = ws.get_accounts()
-    show_holdings_in_tfsa(ws, accounts)
+    show_holdings_in_tfsa(ws, accounts, 'both')
     
 
 if __name__ == "__main__":
