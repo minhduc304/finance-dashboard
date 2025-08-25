@@ -34,17 +34,17 @@ def show_account_activities(ws: WealthsimpleAPI, accounts: List, account_name: s
         print(f"  Amount: {activity['amount']} {activity['currency']}")
         print("-" * 20)
 
-def refresh_cache():
-    return None
-
-def show_holdings_in_tfsa(ws: WealthsimpleAPI, accounts: List, symbol_format='both') -> str:
+def show_holdings_in_tfsa(ws: WealthsimpleAPI, accounts: List, symbol_format: str) -> str:
+    """
+    Show individual holdings in tfsa with the format 
+    """
     # Check cache first
     if os.path.exists(HOLDINGS_CACHE_FILE):
         with open(HOLDINGS_CACHE_FILE, 'r') as f:
             try:
                 cached_data = json.load(f)
                 timestamp_str = cached_data.get('timestamp')
-                cache_format = cached_data.get('format', 'both')
+                cache_format = cached_data.get('format', symbol_format)
                 if timestamp_str and cache_format == symbol_format:
                     timestamp = datetime.fromisoformat(timestamp_str)
                     if datetime.now() - timestamp < CACHE_DURATION:
@@ -109,7 +109,7 @@ def main():
         print("Login successful.")
     
     accounts = ws.get_accounts()
-    show_holdings_in_tfsa(ws, accounts, 'both')
+    show_holdings_in_tfsa(ws, accounts, 'ticker')
     
 
 if __name__ == "__main__":
