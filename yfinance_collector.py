@@ -18,7 +18,9 @@ def collect_news(ticker: str) -> pd.DataFrame:
     
     return df
 
-print(collect_news("PLTR"))
+
+
+
 
 
 
