@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from models.social_sentiment import Base, RedditPost, RedditComment
-from collectors.sentiment_analyzer import FinancialSentimentAnalyzer
 
 load_dotenv()
 
@@ -19,7 +18,7 @@ class RedditCollector:
             client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
             user_agent="FinanceDashboard/1.0 (Stock Sentiment Analyzer)",
         )
-
+        
         # Database setup
         if database_url:
             self.engine = create_engine(database_url)
@@ -28,9 +27,6 @@ class RedditCollector:
             self.session = Session()
         else:
             self.session = None
-
-        # Initialize enhanced sentiment analyzer
-        self.sentiment_analyzer = FinancialSentimentAnalyzer()
         
         # Finance/stock subreddits to monitor
         self.subreddits = [
@@ -89,11 +85,26 @@ class RedditCollector:
         
         return list(set(tickers))  # Remove duplicates
     
-    def calculate_sentiment(self, text: str, subreddit: Optional[str] = None) -> Dict[str, any]:
+    def calculate_sentiment(self, text: str) -> Dict[str, any]:
         """
-        Enhanced sentiment calculation using VADER and TextBlob with financial context
+        Basic sentiment calculation (placeholder for actual sentiment analysis)
+        In production, you'd use TextBlob, VADER, or a financial-specific model
         """
-        return self.sentiment_analyzer.calculate_sentiment(text, subreddit)
+        # Placeholder implementation - returns neutral sentiment
+        # You should replace this with actual sentiment analysis
+        bullish_words = {'buy', 'long', 'bullish', 'moon', 'rocket', 'gain', 'up', 'calls', 'green', 'profit'}
+        bearish_words = {'sell', 'short', 'bearish', 'crash', 'down', 'puts', 'red', 'loss', 'dump'}
+        
+        text_lower = text.lower() if text else ""
+        bullish_count = sum(1 for word in bullish_words if word in text_lower)
+        bearish_count = sum(1 for word in bearish_words if word in text_lower)
+        
+        if bullish_count > bearish_count:
+            return {"score": 0.5, "label": "positive"}
+        elif bearish_count > bullish_count:
+            return {"score": -0.5, "label": "negative"}
+        else:
+            return {"score": 0.0, "label": "neutral"}
     
     def collect_posts(self, subreddit_name: str, limit: int = 100, time_filter: str = "day") -> List[RedditPost]:
         """
@@ -133,7 +144,7 @@ class RedditCollector:
             # Combine title and selftext for ticker extraction and sentiment
             full_text = f"{submission.title} {submission.selftext}"
             tickers = self.extract_tickers(full_text)
-            sentiment = self.calculate_sentiment(full_text, subreddit_name)
+            sentiment = self.calculate_sentiment(full_text)
             
             post = RedditPost(
                 reddit_id=submission.id,
@@ -194,9 +205,7 @@ class RedditCollector:
                 return None
             
             tickers = self.extract_tickers(comment.body)
-            # Get subreddit from post for context
-            subreddit = post.subreddit if hasattr(post, 'subreddit') else None
-            sentiment = self.calculate_sentiment(comment.body, subreddit)
+            sentiment = self.calculate_sentiment(comment.body)
             
             reddit_comment = RedditComment(
                 reddit_id=comment.id,
@@ -256,6 +265,10 @@ class RedditCollector:
                 
                 self.session.commit()
         
+        print(f"\n=== Collection Summary ===")
+        print(f"Total posts collected: {len(all_posts)}")
+        print(f"Total comments collected: {len(all_comments)}")
+        
         # Print ticker summary
         all_tickers = set()
         for post in all_posts:
@@ -274,6 +287,10 @@ class RedditCollector:
 
 # Example usage
 if __name__ == "__main__":
+    # Initialize collector with database URL (update with your actual database URL)
+    # For PostgreSQL: "postgresql://username:password@localhost/dbname"
+    # For SQLite: "sqlite:///reddit_data.db"
+    
     collector = RedditCollector(database_url="sqlite:///reddit_sentiment.db")
     
     # Collect data from all subreddits
