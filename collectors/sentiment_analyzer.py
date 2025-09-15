@@ -12,7 +12,7 @@ from datetime import datetime
 
 class FinancialSentimentAnalyzer:
     """
-    Enhanced sentiment analyzer specifically tuned for financial Reddit content.
+    Sentiment analyzer specifically tuned for financial Reddit content.
     Uses VADER as primary analyzer with financial lexicon updates and context awareness.
     """
 
@@ -398,14 +398,7 @@ if __name__ == "__main__":
         }
     ]
 
-    print("Testing Financial Sentiment Analyzer\n" + "="*50)
+    # Test sentiment analyzer
     for test in test_cases:
         result = analyzer.calculate_sentiment(test["text"], test["subreddit"])
-        print(f"\nText: {test['text'][:50]}...")
-        print(f"Subreddit: r/{test['subreddit']}")
-        print(f"Score: {result['score']} ({result['label']})")
-        print(f"Confidence: {result['confidence']}")
-        if result.get('sarcasm_detected'):
-            print("Sarcasm detected")
-        if result.get('is_bot_or_meta'):
-            print("Bot/Meta content filtered")
+        # Test results available in result dict
