@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, get_current_user_optional
 from app.models import User, Portfolio, Holding, Transaction
 from app.services.data_service import DataService
 
@@ -45,7 +45,7 @@ class TransactionResponse(BaseModel):
 
 @router.get("/", response_model=List[PortfolioSummary])
 async def get_user_portfolios(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get all portfolios for authenticated user"""
@@ -55,7 +55,7 @@ async def get_user_portfolios(
 @router.get("/{portfolio_id}", response_model=PortfolioSummary)
 async def get_portfolio_details(
     portfolio_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get specific portfolio details"""
@@ -75,7 +75,7 @@ async def get_portfolio_details(
 @router.get("/{portfolio_id}/holdings", response_model=List[HoldingResponse])
 async def get_portfolio_holdings(
     portfolio_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get holdings for a specific portfolio"""
@@ -98,7 +98,7 @@ async def get_portfolio_holdings(
 async def get_portfolio_transactions(
     portfolio_id: int,
     limit: int = Query(50, description="Number of transactions to return"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get recent transactions for a portfolio"""
@@ -123,7 +123,7 @@ async def get_portfolio_transactions(
 @router.post("/{portfolio_id}/update")
 async def update_portfolio_values(
     portfolio_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Update portfolio with latest market prices"""
@@ -158,7 +158,7 @@ async def update_portfolio_values(
 async def get_portfolio_performance(
     portfolio_id: int,
     days: int = Query(30, description="Number of days for performance calculation"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get portfolio performance metrics"""
@@ -204,7 +204,7 @@ async def get_portfolio_performance(
 @router.post("/{portfolio_id}/sync")
 async def sync_portfolio_with_broker(
     portfolio_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Trigger sync with brokerage account (Wealthsimple)"""

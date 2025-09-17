@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, get_current_user_optional
 from app.models import User, StockSentiment, RedditPost
 
 router = APIRouter()
@@ -81,7 +81,7 @@ class SentimentSummaryResponse(BaseModel):
 async def get_stock_sentiment(
     ticker: str,
     days: int = Query(default=7, description="Number of days of sentiment history"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get sentiment data for a specific stock"""
@@ -104,7 +104,7 @@ async def get_stock_sentiment(
 async def get_trending_sentiment(
     limit: int = Query(default=10, description="Number of trending stocks to return"),
     period: str = Query(default="24h", description="Time period: 24h, 7d, 30d"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get trending stocks by sentiment mentions"""
@@ -163,7 +163,7 @@ async def get_stock_posts(
     ticker: str,
     limit: int = Query(default=20, description="Number of posts to return"),
     sentiment_filter: Optional[str] = Query(default=None, description="Filter by sentiment: positive, negative, neutral"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get recent Reddit posts mentioning a specific stock"""
@@ -209,7 +209,7 @@ async def get_stock_posts(
 
 @router.get("/summary", response_model=SentimentSummaryResponse)
 async def get_sentiment_summary(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get overall sentiment summary across all stocks"""

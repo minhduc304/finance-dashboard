@@ -10,31 +10,31 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 
-# Add models directory to path
+# Add backend directory to path to import Base
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backend'))
 
 # Load environment variables
 load_dotenv()
 
+# Import the shared Base from backend
+from backend.app.core.database import Base
+
 # Import all models to register them with Base
-from models.user import Base as UserBase, User
-from models.auth import Base as AuthBase, WealthsimpleAuth
+from models.user import User
+from models.auth import WealthsimpleAuth
 from models.portfolio import (
-    Base as PortfolioBase, 
-    Portfolio, Holding, Transaction, 
+    Portfolio, Holding, Transaction,
     PerformanceHistory, Watchlist, Alert
 )
 from models.yfinance import (
-    Base as YFinanceBase,
     StockInfo, StockPrice, StockNews, Earnings,
     Financials, DividendHistory, StockSplit, AnalystRating
 )
 from models.openinsider import (
-    Base as OpenInsiderBase,
     InsiderTrade, InsiderSummary, TopInsider, InsiderAlert
 )
 from models.social_sentiment import (
-    Base as SentimentBase,
     RedditPost, RedditComment, StockSentiment
 )
 
@@ -60,25 +60,10 @@ def init_database():
         
         # Create all tables
         print("\nCreating tables...")
-        
-        # Since we have multiple Base objects, we need to create tables for each
-        UserBase.metadata.create_all(bind=engine)
-        print("User tables created")
-        
-        AuthBase.metadata.create_all(bind=engine)
-        print("Auth tables created")
-        
-        PortfolioBase.metadata.create_all(bind=engine)
-        print("Portfolio tables created")
-        
-        YFinanceBase.metadata.create_all(bind=engine)
-        print("YFinance tables created")
-        
-        OpenInsiderBase.metadata.create_all(bind=engine)
-        print("OpenInsider tables created")
-        
-        SentimentBase.metadata.create_all(bind=engine)
-        print("Sentiment tables created")
+
+        # Now all models share the same Base, so we only need one create_all call
+        Base.metadata.create_all(bind=engine)
+        print("All tables created")
         
         print("\nDatabase initialization complete!")
         
@@ -111,13 +96,8 @@ def drop_all_tables():
     try:
         engine = create_engine(DATABASE_URL)
         
-        # Drop all tables
-        UserBase.metadata.drop_all(bind=engine)
-        AuthBase.metadata.drop_all(bind=engine)
-        PortfolioBase.metadata.drop_all(bind=engine)
-        YFinanceBase.metadata.drop_all(bind=engine)
-        OpenInsiderBase.metadata.drop_all(bind=engine)
-        SentimentBase.metadata.drop_all(bind=engine)
+        # Drop all tables (now using shared Base)
+        Base.metadata.drop_all(bind=engine)
         
         print("All tables dropped successfully")
         

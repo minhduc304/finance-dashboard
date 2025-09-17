@@ -33,8 +33,8 @@ celery_app.conf.update(
 
 # Scheduled tasks
 celery_app.conf.beat_schedule = {
-    "update-market-data": {
-        "task": "app.tasks.update_market_data",
+    "collect-market-data": {
+        "task": "app.tasks.collect_market_data",
         "schedule": timedelta(minutes=15),  # Every 15 minutes during market hours
         "options": {"expires": 300}
     },
@@ -43,8 +43,8 @@ celery_app.conf.beat_schedule = {
         "schedule": timedelta(hours=1),  # Every hour
         "options": {"expires": 600}
     },
-    "scrape-insider-trading": {
-        "task": "app.tasks.scrape_insider_trading",
+    "collect-insider-trading": {
+        "task": "app.tasks.collect_insider_trading",
         "schedule": crontab(hour=6, minute=0),  # Daily at 6 AM
         "options": {"expires": 3600}
     },

@@ -4,27 +4,38 @@
 
 echo "Starting Finance Dashboard Services..."
 
-# Start Redis (if not using Docker)
-if ! pgrep -x "redis-server" > /dev/null; then
-    echo "Starting Redis..."
-    redis-server redis.conf &
-fi
+# Start Docker services (Redis & PostgreSQL)
+echo "Starting Docker services (Redis & PostgreSQL)..."
+docker-compose up -d redis postgres
 
-# Start PostgreSQL (if not using Docker)
-# Uncomment if needed
-# pg_ctl start
+# Wait for services to be ready using healthchecks
+echo "Waiting for services to be ready..."
+echo "Waiting for PostgreSQL..."
+docker-compose exec -T postgres pg_isready -U myapp_user -d myapp_db || sleep 10
+echo "Waiting for Redis..."
+docker-compose exec -T redis redis-cli ping || sleep 5
+
+# Activate virtual environment
+echo "Activating virtual environment..."
+source venv/bin/activate
+
+# Change to backend directory for Python services
+cd backend
 
 # Start Celery Worker
 echo "Starting Celery Worker..."
-celery -A backend.app.core.celery_app worker --loglevel=info &
+celery -A app.core.celery_app worker --loglevel=info &
 
 # Start Celery Beat
 echo "Starting Celery Beat..."
-celery -A backend.app.core.celery_app beat --loglevel=info &
+celery -A app.core.celery_app beat --loglevel=info &
 
 # Start FastAPI
 echo "Starting FastAPI..."
-cd backend && python start_api.py &
+python start_api.py &
+
+# Return to root directory
+cd ..
 
 echo "All services started!"
 echo "API: http://localhost:8000"

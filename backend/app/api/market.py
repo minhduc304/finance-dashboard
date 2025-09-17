@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, get_current_user_optional
 from app.models import User, StockInfo, StockPrice, StockNews, StockSentiment
 from app.services.data_service import DataService
 
@@ -72,7 +72,7 @@ class TrendingResponse(BaseModel):
 @router.get("/stocks/{ticker}", response_model=StockInfoResponse)
 async def get_stock_info(
     ticker: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get basic stock information"""
@@ -91,7 +91,7 @@ async def get_stock_info(
 async def get_stock_price(
     ticker: str,
     days: int = Query(default=30, description="Number of days of price history"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get stock price history"""
@@ -120,7 +120,7 @@ async def get_stock_price(
 async def get_stock_news(
     ticker: str,
     limit: int = Query(default=10, description="Number of news articles to return"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get recent news for a stock"""
@@ -138,7 +138,7 @@ async def get_stock_news(
 @router.get("/trending", response_model=TrendingResponse)
 async def get_trending_stocks(
     limit: int = Query(default=10, description="Number of trending stocks to return"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get trending stocks based on recent activity"""

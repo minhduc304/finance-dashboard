@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional
+import os
 
 from ..core.database import get_db
 from ..core.auth import (
@@ -16,7 +17,7 @@ from ..core.auth import (
 from models.user import User
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
 class UserCreate(BaseModel):
@@ -49,6 +50,28 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise credentials_exception
     return user
+
+
+def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """Optional authentication for development mode"""
+    # In development mode, create a default user if no token provided
+    if os.getenv("ENVIRONMENT", "development") == "development":
+        if not token or token == "undefined":
+            # Return or create a default development user
+            dev_user = db.query(User).filter(User.email == "dev@example.com").first()
+            if not dev_user:
+                dev_user = User(
+                    email="dev@example.com",
+                    password_hash=get_password_hash("devpassword"),
+                    active=True
+                )
+                db.add(dev_user)
+                db.commit()
+                db.refresh(dev_user)
+            return dev_user
+
+    # Otherwise use normal authentication
+    return get_current_user(token, db)
 
 
 @router.post("/register", response_model=UserResponse)
