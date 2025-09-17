@@ -3,11 +3,15 @@ Simple portfolio models for tracking user investments
 """
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, JSON
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
-Base = declarative_base()
+# Import shared Base from backend
+import sys
+import os
+backend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'backend')
+sys.path.insert(0, backend_path)
+from app.core.database import Base
 
 
 class Portfolio(Base):

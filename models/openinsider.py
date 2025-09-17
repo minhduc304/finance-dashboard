@@ -1,10 +1,14 @@
 # models/openinsider.py
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, Numeric, Text, Index
-from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 
-Base = declarative_base()
+# Import shared Base from backend
+import sys
+import os
+backend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'backend')
+sys.path.insert(0, backend_path)
+from app.core.database import Base
 
 class InsiderTrade(Base):
     """Model for storing insider trading data from OpenInsider"""

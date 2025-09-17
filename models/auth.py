@@ -1,11 +1,15 @@
 from sqlalchemy import Column, Integer, ForeignKey, String, Text, DateTime
-from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 
-Base = declarative_base()
+# Import shared Base from backend
+import sys
+import os
+backend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'backend')
+sys.path.insert(0, backend_path)
+from app.core.database import Base
 
 class WealthsimpleAuth(Base):
-    __table_name__ = "wealthsimple_auth"
+    __tablename__ = "wealthsimple_auth"
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True)
