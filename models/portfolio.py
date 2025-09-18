@@ -44,19 +44,25 @@ class Holding(Base):
     id = Column(Integer, primary_key=True)
     portfolio_id = Column(Integer, ForeignKey('portfolios.id'), nullable=False)
 
-    # Stock info
-    symbol = Column(String(20), nullable=False)
+    # Stock info - using actual database column names
+    ticker = Column(String(10), nullable=False)
+    name = Column(String(255))
+    security_type = Column(String(20))
     quantity = Column(Float, nullable=False)
     average_cost = Column(Float, nullable=False)
+    total_cost = Column(Float)
 
     # Current values
     current_price = Column(Float)
     market_value = Column(Float)
-    gain_loss = Column(Float)
+    unrealized_gain = Column(Float)
+    unrealized_gain_percent = Column(Float)
+    realized_gain = Column(Float)
+    portfolio_percent = Column(Float)
 
-    # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Timestamps - using actual database column names
+    first_purchase_date = Column(DateTime)
+    last_updated = Column(DateTime)
 
     # Relationships
     portfolio = relationship("Portfolio", back_populates="holdings")
@@ -107,7 +113,10 @@ class Watchlist(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     name = Column(String(100), nullable=False)
-    symbols = Column(JSON, nullable=False)  # List of stock symbols
+    description = Column(String(500))
+    tickers = Column(JSON)  # List of stock tickers
+    is_public = Column(Boolean)
+    is_default = Column(Boolean)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
