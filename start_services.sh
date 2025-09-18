@@ -2,7 +2,25 @@
 
 # Start all backend services
 
-echo "Starting Finance Dashboard Services..."
+# Create logs directory if it doesn't exist
+mkdir -p logs
+
+# Set up log files with timestamp
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+LOG_DIR="logs"
+MAIN_LOG="$LOG_DIR/services_${TIMESTAMP}.log"
+CELERY_WORKER_LOG="$LOG_DIR/celery_worker_${TIMESTAMP}.log"
+CELERY_BEAT_LOG="$LOG_DIR/celery_beat_${TIMESTAMP}.log"
+FASTAPI_LOG="$LOG_DIR/fastapi_${TIMESTAMP}.log"
+
+# Function to log to both console and file
+log() {
+    echo "$1" | tee -a "$MAIN_LOG"
+}
+
+log "Starting Finance Dashboard Services..."
+log "Log files created at: $(date)"
+log "Main log: $MAIN_LOG"
 
 # Start Docker services (Redis & PostgreSQL)
 echo "Starting Docker services (Redis & PostgreSQL)..."
