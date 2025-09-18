@@ -172,21 +172,21 @@ class DataService:
         for holding in portfolio.holdings:
             # Get latest price
             latest_price = db_session.query(StockPrice).filter(
-                StockPrice.ticker == holding.symbol
+                StockPrice.ticker == holding.ticker
             ).order_by(StockPrice.date.desc()).first()
 
             if latest_price:
-                holding.current_price = latest_price.close
-                holding.market_value = holding.quantity * latest_price.close
-                holding.gain_loss = holding.market_value - (holding.quantity * holding.average_cost)
+                holding.current_price = float(latest_price.close)
+                holding.market_value = float(holding.quantity) * float(latest_price.close)
+                holding.unrealized_gain = holding.market_value - (float(holding.quantity) * float(holding.average_cost))
                 total_value += holding.market_value
 
                 updated_holdings.append({
-                    "symbol": holding.symbol,
+                    "ticker": holding.ticker,
                     "quantity": holding.quantity,
                     "current_price": holding.current_price,
                     "market_value": holding.market_value,
-                    "gain_loss": holding.gain_loss
+                    "unrealized_gain": holding.unrealized_gain
                 })
 
         portfolio.total_value = total_value

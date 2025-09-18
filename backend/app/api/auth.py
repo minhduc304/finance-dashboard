@@ -42,6 +42,9 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+    if not token:
+        raise credentials_exception
+
     token_data = verify_token(token)
     if token_data is None:
         raise credentials_exception

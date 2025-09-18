@@ -27,12 +27,13 @@ class PortfolioSummary(BaseModel):
 
 class HoldingResponse(BaseModel):
     id: int
-    symbol: str
+    ticker: str
+    name: Optional[str]
     quantity: float
     average_cost: float
     current_price: Optional[float]
     market_value: Optional[float]
-    gain_loss: Optional[float]
+    unrealized_gain: Optional[float]
 
 class TransactionResponse(BaseModel):
     id: int

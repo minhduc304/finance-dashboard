@@ -32,8 +32,8 @@ def collect_market_data(self, tickers=None):
             watchlists = db.query(Watchlist).all()
             tickers = set()
             for watchlist in watchlists:
-                if watchlist.symbols:
-                    tickers.update(watchlist.symbols)
+                if watchlist.tickers:
+                    tickers.update(watchlist.tickers)
 
         if not tickers:
             tickers = ["SPY", "QQQ", "DIA", "AAPL", "MSFT", "GOOGL"]
@@ -314,13 +314,13 @@ def update_portfolio_values(self):
             for holding in portfolio.holdings:
                 # Get latest price
                 latest_price = db.query(StockPrice).filter(
-                    StockPrice.ticker == holding.symbol
+                    StockPrice.ticker == holding.ticker
                 ).order_by(StockPrice.date.desc()).first()
 
                 if latest_price:
-                    holding.current_price = latest_price.close
-                    holding.market_value = holding.quantity * latest_price.close
-                    holding.gain_loss = holding.market_value - (holding.quantity * holding.average_cost)
+                    holding.current_price = float(latest_price.close)
+                    holding.market_value = float(holding.quantity) * float(latest_price.close)
+                    holding.unrealized_gain = holding.market_value - (float(holding.quantity) * float(holding.average_cost))
                     total_value += holding.market_value
 
             portfolio.total_value = total_value
