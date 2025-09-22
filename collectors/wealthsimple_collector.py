@@ -6,7 +6,7 @@ Returns data without database operations
 import os
 import getpass
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from ws_api import WealthsimpleAPI, WSAPISession
 from typing import List, Optional, Dict, Any
 
@@ -99,7 +99,7 @@ class WealthsimpleCollector:
             'total_cash_balance': total_cash,
             'currency': 'CAD',  # Assume CAD for Wealthsimple
             'accounts': accounts,
-            'collected_at': datetime.utcnow()
+            'collected_at': datetime.now(timezone.utc)
         }
 
     def get_holdings(self, account_id: str = None) -> List[Dict]:
@@ -264,7 +264,7 @@ class WealthsimpleCollector:
             'worst_performers': worst_performers[:5],
             'holdings_by_symbol': list(holdings_by_symbol.values()),
             'recent_transactions': transactions[:10],
-            'collected_at': datetime.utcnow()
+            'collected_at': datetime.now(timezone.utc)
         }
 
     def _determine_transaction_type(self, activity: Dict) -> str:

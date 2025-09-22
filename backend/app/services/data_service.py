@@ -3,7 +3,7 @@ Data service layer - orchestrates collectors and database operations
 Provides clean interface for API endpoints
 """
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, date
 import sys
 import os
 
@@ -26,7 +26,7 @@ class DataService:
         stock_info = db_session.query(StockInfo).filter_by(ticker=ticker.upper()).first()
 
         if not stock_info or (stock_info.updated_at and
-                             stock_info.updated_at < datetime.utcnow() - timedelta(hours=24)):
+                             stock_info.updated_at < datetime.now(timezone.utc) - timedelta(hours=24)):
             # Data is stale or doesn't exist, fetch fresh data
             collector = YFinanceCollector()
             fresh_data = collector.collect_stock_info(ticker)
@@ -73,7 +73,6 @@ class DataService:
     def get_trending_stocks(db_session) -> Dict[str, Any]:
         """Get trending stocks from Reddit sentiment"""
         from backend.app.models import StockSentiment
-        from datetime import date
 
         # Get today's sentiment data
         today_sentiment = db_session.query(StockSentiment).filter(
@@ -95,7 +94,7 @@ class DataService:
                     "source": s.source
                 } for s in today_sentiment
             ],
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.now(timezone.utc)
         }
 
     @staticmethod
@@ -191,7 +190,7 @@ class DataService:
 
         portfolio.total_value = total_value
         portfolio.total_gain_loss = total_value - portfolio.total_cost
-        portfolio.updated_at = datetime.utcnow()
+        portfolio.updated_at = datetime.now(timezone.utc)
 
         db_session.commit()
 

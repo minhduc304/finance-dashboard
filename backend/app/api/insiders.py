@@ -5,12 +5,11 @@ Insider trading API endpoints - Enhanced version
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.api.auth import get_current_user, get_current_user_optional
-from app.models import User, InsiderTrade, InsiderAlert, InsiderSummary, TopInsider
+from app.models import InsiderTrade, InsiderAlert, InsiderSummary, TopInsider
 
 router = APIRouter()
 
@@ -114,11 +113,10 @@ async def get_insider_trades(
     ticker: str,
     days: int = Query(default=30, description="Number of days of insider trading history"),
     transaction_type: Optional[str] = Query(default=None, description="Filter by transaction type (P=Purchase, S=Sale)"),
-    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get insider trading data for a specific stock"""
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
     query = db.query(InsiderTrade).filter(
         InsiderTrade.ticker == ticker.upper(),
@@ -143,7 +141,6 @@ async def get_insider_trades(
 async def get_insider_alerts(
     limit: int = Query(default=20, description="Number of alerts to return"),
     severity: Optional[str] = Query(default=None, description="Filter by severity: low, medium, high"),
-    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get notable insider trading alerts and patterns"""
@@ -172,7 +169,6 @@ async def get_insider_alerts(
 @router.get("/summary/{ticker}", response_model=InsiderSummaryResponse)
 async def get_insider_summary(
     ticker: str,
-    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get insider trading summary for a specific stock"""
@@ -219,7 +215,6 @@ async def get_insider_summary(
 async def get_top_insider_traders(
     limit: int = Query(default=10, description="Number of top traders to return"),
     sort_by: str = Query(default="volume", description="Sort by: volume, trades, recent"),
-    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get top insider traders by volume or activity"""

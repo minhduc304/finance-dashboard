@@ -4,7 +4,7 @@ Portfolio models for local finance dashboard
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Import shared Base from backend
 import sys
@@ -28,8 +28,8 @@ class Portfolio(Base):
     cash_balance = Column(Float, default=0.0)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
     # Relationships
     holdings = relationship("Holding", back_populates="portfolio")
@@ -83,7 +83,7 @@ class Transaction(Base):
 
     # Timestamps
     transaction_date = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
 
     # Relationships
     portfolio = relationship("Portfolio", back_populates="transactions")
@@ -102,7 +102,7 @@ class PerformanceHistory(Base):
     daily_return = Column(Float)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
 
 
 class Watchlist(Base):
@@ -117,8 +117,8 @@ class Watchlist(Base):
     is_default = Column(Boolean)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
 
 class Alert(Base):
@@ -134,5 +134,5 @@ class Alert(Base):
     is_active = Column(Boolean, default=True)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
     triggered_at = Column(DateTime)

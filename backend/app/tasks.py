@@ -4,7 +4,7 @@ Handles database persistence for pure data collectors
 """
 from celery import shared_task
 from celery.utils.log import get_task_logger
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import sys
 import os
 
@@ -16,24 +16,122 @@ if project_root not in sys.path:
 logger = get_task_logger(__name__)
 
 
+@shared_task(bind=True, max_retries=2)
+def sync_wealthsimple_portfolios(self):
+    """Sync Wealthsimple portfolio data and save to database"""
+    try:
+        from collectors.wealthsimple_collector import WealthsimpleCollector
+        from backend.app.core.database import SessionLocal
+        from backend.app.models import Portfolio, Holding, Transaction
+
+        collector = WealthsimpleCollector()
+        db = SessionLocal()
+
+        # Authenticate with Wealthsimple (credentials from environment/config)
+        if not collector.authenticate():
+            return {"status": "failed", "error": "Authentication failed"}
+
+        # Collect portfolio data
+        portfolio_data = collector.collect_all_data()
+
+        # Save portfolio summary
+        for account_data in portfolio_data['portfolio_summary']['accounts']:
+            portfolio = db.query(Portfolio).filter_by(
+                name=account_data['description']
+            ).first()
+
+            if not portfolio:
+                portfolio = Portfolio(
+                    name=account_data['description']
+                )
+                db.add(portfolio)
+
+            portfolio.total_value = account_data['value']
+            portfolio.cash_balance = account_data['cash_balance']
+            portfolio.updated_at = datetime.now(timezone.utc)
+
+            db.commit()
+
+            # Clear existing holdings for fresh update
+            db.query(Holding).filter_by(portfolio_id=portfolio.id).delete()
+
+            # Save holdings
+            for holding_data in portfolio_data['holdings']:
+                if holding_data['account_id'] == account_data['id']:
+                    holding = Holding(
+                        portfolio_id=portfolio.id,
+                        ticker=holding_data['symbol'],
+                        name=holding_data.get('name'),
+                        quantity=holding_data['quantity'],
+                        average_cost=holding_data['average_cost'],
+                        current_price=holding_data['current_price'],
+                        market_value=holding_data['market_value'],
+                        unrealized_gain=holding_data.get('gain_loss', 0)
+                    )
+                    db.add(holding)
+
+            # Save transactions
+            for trans_data in portfolio_data['transactions']:
+                if trans_data['account_id'] == account_data['id']:
+                    # Check if transaction exists
+                    existing = db.query(Transaction).filter_by(
+                        portfolio_id=portfolio.id,
+                        transaction_date=trans_data['transaction_date']
+                    ).first()
+
+                    if not existing:
+                        transaction = Transaction(
+                            portfolio_id=portfolio.id,
+                            type=trans_data['type'],
+                            symbol=trans_data['symbol'],
+                            quantity=trans_data['quantity'],
+                            price=trans_data['price'],
+                            total_amount=trans_data['total_amount'],
+                            transaction_date=trans_data['transaction_date']
+                        )
+                        db.add(transaction)
+
+        db.commit()
+        db.close()
+
+        return {
+            "status": "success",
+            "portfolios_updated": len(portfolio_data['portfolio_summary']['accounts']),
+            "holdings_count": len(portfolio_data['holdings']),
+            "transactions_count": len(portfolio_data['transactions'])
+        }
+
+    except Exception as e:
+        logger.error(f"Wealthsimple portfolio sync failed: {e}")
+        raise self.retry(exc=e, countdown=300)
+
+
 @shared_task(bind=True, max_retries=3)
 def collect_market_data(self, tickers=None):
     """Collect market data and save to database"""
     try:
         from collectors.yfinance_collector import YFinanceCollector
         from backend.app.core.database import SessionLocal
-        from backend.app.models import StockInfo, StockPrice, Watchlist
+        from backend.app.models import StockInfo, StockPrice, Watchlist, Holding
 
         collector = YFinanceCollector()
         db = SessionLocal()
 
-        # Get tickers to update
+        # Get tickers to update - prioritize portfolio holdings over watchlists
         if not tickers:
-            watchlists = db.query(Watchlist).all()
+            # First try to get tickers from portfolio holdings
+            holdings = db.query(Holding).all()
             tickers = set()
-            for watchlist in watchlists:
-                if watchlist.tickers:
-                    tickers.update(watchlist.tickers)
+            for holding in holdings:
+                if holding.ticker:
+                    tickers.add(holding.ticker)
+
+            # If no holdings, fall back to watchlists
+            if not tickers:
+                watchlists = db.query(Watchlist).all()
+                for watchlist in watchlists:
+                    if watchlist.tickers:
+                        tickers.update(watchlist.tickers)
 
         if not tickers:
             tickers = ["SPY", "QQQ", "DIA", "AAPL", "MSFT", "GOOGL"]
@@ -129,7 +227,7 @@ def collect_reddit_sentiment(self):
                             sentiment_score=comment_data.get('sentiment_score'),
                             sentiment_label=comment_data.get('sentiment_label'),
                             created_utc=comment_data.get('created_utc'),
-                            scraped_at=comment_data.get('scraped_at', datetime.datetime.now(datetime.UTC))
+                            scraped_at=comment_data.get('scraped_at', )
                         )
                         db.add(comment)
 
@@ -139,7 +237,7 @@ def collect_reddit_sentiment(self):
                 ticker=ticker,
                 avg_sentiment=sentiment_avg,  # Use correct field name
                 total_mentions=trending_data['trending_tickers'].get(ticker, 0),  # Use correct field name
-                date=datetime.datetime.now(datetime.UTC).date()  # Should be date, not datetime
+                date=datetime.now(timezone.utc).date()  # Should be date, not datetime
             )
             db.add(sentiment_summary)
 
@@ -206,94 +304,6 @@ def collect_insider_trading(self):
         raise self.retry(exc=e, countdown=600)
 
 
-@shared_task(bind=True, max_retries=2)
-def sync_wealthsimple_portfolios(self):
-    """Sync Wealthsimple portfolio data and save to database"""
-    try:
-        from collectors.wealthsimple_collector import WealthsimpleCollector
-        from backend.app.core.database import SessionLocal
-        from backend.app.models import Portfolio, Holding, Transaction
-
-        collector = WealthsimpleCollector()
-        db = SessionLocal()
-
-        # Authenticate with Wealthsimple (credentials from environment/config)
-        if not collector.authenticate():
-            return {"status": "failed", "error": "Authentication failed"}
-
-        # Collect portfolio data
-        portfolio_data = collector.collect_all_data()
-
-        # Save portfolio summary
-        for account_data in portfolio_data['portfolio_summary']['accounts']:
-            portfolio = db.query(Portfolio).filter_by(
-                name=account_data['description']
-            ).first()
-
-            if not portfolio:
-                portfolio = Portfolio(
-                    name=account_data['description']
-                )
-                db.add(portfolio)
-
-            portfolio.total_value = account_data['value']
-            portfolio.cash_balance = account_data['cash_balance']
-            portfolio.updated_at = datetime.datetime.now(datetime.UTC)
-
-            db.commit()
-
-            # Clear existing holdings for fresh update
-            db.query(Holding).filter_by(portfolio_id=portfolio.id).delete()
-
-            # Save holdings
-            for holding_data in portfolio_data['holdings']:
-                if holding_data['account_id'] == account_data['id']:
-                    holding = Holding(
-                        portfolio_id=portfolio.id,
-                        ticker=holding_data['symbol'],  
-                        name=holding_data.get('name'),
-                        quantity=holding_data['quantity'],
-                        average_cost=holding_data['average_cost'],
-                        current_price=holding_data['current_price'],
-                        market_value=holding_data['market_value'],
-                        unrealized_gain=holding_data.get('gain_loss', 0)  
-                    )
-                    db.add(holding)
-
-            # Save transactions
-            for trans_data in portfolio_data['transactions']:
-                if trans_data['account_id'] == account_data['id']:
-                    # Check if transaction exists
-                    existing = db.query(Transaction).filter_by(
-                        portfolio_id=portfolio.id,
-                        transaction_date=trans_data['transaction_date']
-                    ).first()
-
-                    if not existing:
-                        transaction = Transaction(
-                            portfolio_id=portfolio.id,
-                            type=trans_data['type'],
-                            symbol=trans_data['symbol'],
-                            quantity=trans_data['quantity'],
-                            price=trans_data['price'],
-                            total_amount=trans_data['total_amount'],
-                            transaction_date=trans_data['transaction_date']
-                        )
-                        db.add(transaction)
-
-        db.commit()
-        db.close()
-
-        return {
-            "status": "success",
-            "portfolios_updated": len(portfolio_data['portfolio_summary']['accounts']),
-            "holdings_count": len(portfolio_data['holdings']),
-            "transactions_count": len(portfolio_data['transactions'])
-        }
-
-    except Exception as e:
-        logger.error(f"Wealthsimple portfolio sync failed: {e}")
-        raise self.retry(exc=e, countdown=300)
 
 
 @shared_task(bind=True, max_retries=3)
@@ -325,7 +335,7 @@ def update_portfolio_values(self):
 
             portfolio.total_value = total_value
             portfolio.total_gain_loss = total_value - portfolio.total_cost
-            portfolio.updated_at = datetime.now(datetime.timezone.utc)
+            portfolio.updated_at = datetime.now(timezone.utc)
             updated_count += 1
 
         db.commit()
@@ -338,6 +348,58 @@ def update_portfolio_values(self):
         raise self.retry(exc=e, countdown=60)
 
 
+@shared_task(bind=True, max_retries=2)
+def populate_watchlist_from_holdings(self):
+    """Create or update watchlist based on current portfolio holdings"""
+    try:
+        from backend.app.core.database import SessionLocal
+        from backend.app.models import Holding, Watchlist
+
+        db = SessionLocal()
+
+        # Get all unique tickers from holdings
+        holdings = db.query(Holding).all()
+        tickers = set()
+        for holding in holdings:
+            if holding.ticker:
+                tickers.add(holding.ticker.upper())
+
+        if not tickers:
+            logger.info("No holdings found, skipping watchlist update")
+            db.close()
+            return {"status": "no_data", "message": "No holdings found"}
+
+        # Find or create default watchlist
+        watchlist = db.query(Watchlist).filter_by(is_default=True).first()
+        if not watchlist:
+            watchlist = Watchlist(
+                name="Portfolio Holdings",
+                description="Auto-generated from current portfolio holdings",
+                tickers=list(tickers),
+                is_default=True,
+                is_public=False
+            )
+            db.add(watchlist)
+        else:
+            # Update existing watchlist
+            watchlist.tickers = list(tickers)
+            watchlist.updated_at = datetime.now(timezone.utc)
+
+        db.commit()
+        db.close()
+
+        return {
+            "status": "success",
+            "watchlist_name": watchlist.name,
+            "tickers_count": len(tickers),
+            "tickers": list(tickers)
+        }
+
+    except Exception as e:
+        logger.error(f"Watchlist population failed: {e}")
+        raise self.retry(exc=e, countdown=60)
+
+
 @shared_task
 def cleanup_old_data():
     """Clean up old data from database"""
@@ -346,7 +408,7 @@ def cleanup_old_data():
         from backend.app.models import StockPrice, StockNews, RedditPost
 
         db = SessionLocal()
-        cutoff_date = datetime.now(datetime.timezone.utc) - timedelta(days=90)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=90)
 
         # Delete old price data
         deleted_prices = db.query(StockPrice).filter(
@@ -354,13 +416,13 @@ def cleanup_old_data():
         ).delete()
 
         # Delete old news
-        news_cutoff = datetime.now(datetime.timezone.utc) - timedelta(days=30)
+        news_cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         deleted_news = db.query(StockNews).filter(
             StockNews.published_at < news_cutoff
         ).delete()
 
         # Delete old reddit posts
-        reddit_cutoff = datetime.now(datetime.timezone.utc) - timedelta(days=7)
+        reddit_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
         deleted_posts = db.query(RedditPost).filter(
             RedditPost.created_utc < reddit_cutoff
         ).delete()
@@ -416,7 +478,7 @@ def analyze_ticker_sentiment(self, ticker: str):
                 positive_count=positive_count,  
                 negative_count=negative_count,  
                 total_mentions=len(all_sentiments),  
-                date=datetime.datetime.now(datetime.UTC).date()
+                date=datetime.now(timezone.utc).date()
             )
             db.add(sentiment_record)
             db.commit()

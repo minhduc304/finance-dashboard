@@ -2,7 +2,7 @@
 
 from sqlalchemy import Column, Integer, String, Text, Float, DateTime, Boolean, ForeignKey, JSON
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Import shared Base from backend
 import sys
@@ -36,7 +36,7 @@ class RedditPost(Base):
     
     # Timestamps
     created_utc = Column(DateTime)
-    scraped_at = Column(DateTime, default=datetime.utcnow)
+    scraped_at = Column(DateTime, default=datetime.now(timezone.utc))
 
 
 class RedditComment(Base):
@@ -58,7 +58,7 @@ class RedditComment(Base):
     
     # Timestamps
     created_utc = Column(DateTime)
-    scraped_at = Column(DateTime, default=datetime.utcnow)
+    scraped_at = Column(DateTime, default=datetime.now(timezone.utc))
     
     # Relationship to post
     post = relationship("RedditPost")
@@ -83,4 +83,4 @@ class StockSentiment(Base):
     negative_count = Column(Integer, default=0)
     neutral_count = Column(Integer, default=0)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))

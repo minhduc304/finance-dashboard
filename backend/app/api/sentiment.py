@@ -1,16 +1,15 @@
 """
-Sentiment analysis API endpoints - Enhanced version
+Sentiment analysis API endpoints
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.api.auth import get_current_user, get_current_user_optional
-from app.models import User, StockSentiment, RedditPost
+from app.models import StockSentiment, RedditPost
 
 router = APIRouter()
 
@@ -81,11 +80,10 @@ class SentimentSummaryResponse(BaseModel):
 async def get_stock_sentiment(
     ticker: str,
     days: int = Query(default=7, description="Number of days of sentiment history"),
-    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get sentiment data for a specific stock"""
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
     sentiment_data = db.query(StockSentiment).filter(
         StockSentiment.ticker == ticker.upper(),
@@ -104,7 +102,6 @@ async def get_stock_sentiment(
 async def get_trending_sentiment(
     limit: int = Query(default=10, description="Number of trending stocks to return"),
     period: str = Query(default="24h", description="Time period: 24h, 7d, 30d"),
-    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get trending stocks by sentiment mentions"""
@@ -112,7 +109,7 @@ async def get_trending_sentiment(
         from sqlalchemy import func, desc
 
         period_days = {"24h": 1, "7d": 7, "30d": 30}.get(period, 1)
-        cutoff_date = datetime.utcnow() - timedelta(days=period_days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=period_days)
 
         trending = db.query(
             StockSentiment.ticker,
@@ -163,7 +160,6 @@ async def get_stock_posts(
     ticker: str,
     limit: int = Query(default=20, description="Number of posts to return"),
     sentiment_filter: Optional[str] = Query(default=None, description="Filter by sentiment: positive, negative, neutral"),
-    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get recent Reddit posts mentioning a specific stock"""
@@ -209,14 +205,13 @@ async def get_stock_posts(
 
 @router.get("/summary", response_model=SentimentSummaryResponse)
 async def get_sentiment_summary(
-    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get overall sentiment summary across all stocks"""
     try:
         from sqlalchemy import func
 
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
 
         today_sentiment = db.query(
             func.sum(StockSentiment.total_mentions).label('total_mentions'),
@@ -253,7 +248,7 @@ async def get_sentiment_summary(
 
     except Exception:
         return SentimentSummaryResponse(
-            date=datetime.utcnow().date().isoformat(),
+            date=datetime.now(timezone.utc).date().isoformat(),
             total_mentions=0,
             total_posts=0,
             sentiment_breakdown=SentimentBreakdown(positive=0, negative=0, neutral=0),

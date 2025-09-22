@@ -1,7 +1,7 @@
 import praw
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
 from collectors.sentiment_analyzer import FinancialSentimentAnalyzer
@@ -109,7 +109,7 @@ class RedditCollector:
                 'sentiment_score': sentiment.get("score", 0),
                 'sentiment_label': sentiment.get("label", "neutral"),
                 'created_utc': datetime.fromtimestamp(submission.created_utc),
-                'scraped_at': datetime.utcnow()
+                'scraped_at': datetime.now(timezone.utc)
             }
         except Exception:
             return None
@@ -153,7 +153,7 @@ class RedditCollector:
                 'sentiment_score': sentiment.get("score", 0),
                 'sentiment_label': sentiment.get("label", "neutral"),
                 'created_utc': datetime.fromtimestamp(comment.created_utc),
-                'scraped_at': datetime.utcnow()
+                'scraped_at': datetime.now(timezone.utc)
             }
         except Exception:
             return None
@@ -192,5 +192,5 @@ class RedditCollector:
             'trending_tickers': trending_tickers,
             'ticker_sentiment': ticker_sentiment_avg,
             'total_posts_analyzed': len(all_posts),
-            'timestamp': datetime.utcnow()
+            'timestamp': datetime.now(timezone.utc)
         }

@@ -7,11 +7,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import market, portfolio, sentiment, insiders, auth
+from app.api import market, portfolio, sentiment, insiders
 
 # Configure logging
 logging.basicConfig(
@@ -79,7 +79,7 @@ async def root():
         "name": "Finance Dashboard API",
         "version": "0.1.0",
         "status": "running",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "environment": settings.ENVIRONMENT,
         "documentation": "/docs" if settings.ENVIRONMENT == "development" else "Disabled in production"
     }
@@ -105,7 +105,7 @@ async def health_check():
     
     return {
         "status": "healthy" if db_status == "healthy" else "degraded",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "services": {
             "api": "healthy",
             "database": db_status
@@ -114,11 +114,11 @@ async def health_check():
 
 
 # Include routers
-app.include_router(
-    auth.router,
-    prefix="/api/v1",
-    tags=["authentication"]
-)
+# app.include_router(
+#     auth.router,
+#     prefix="/api/v1",
+#     tags=["authentication"]
+# )
 
 app.include_router(
     market.router,

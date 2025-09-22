@@ -1,7 +1,7 @@
 # models/openinsider.py
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, Numeric, Text, Index
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Import shared Base from backend
 import sys
@@ -37,8 +37,8 @@ class InsiderTrade(Base):
     value = Column(Numeric(15, 2))  # Total transaction value
     
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     # Create composite index for efficient queries
     __table_args__ = (
@@ -85,8 +85,8 @@ class InsiderSummary(Base):
     unique_sellers = Column(Integer, default=0)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     def __repr__(self):
         return f"<InsiderSummary(ticker={self.ticker}, net_activity={self.net_insider_activity})>"
@@ -127,8 +127,8 @@ class TopInsider(Base):
     win_rate = Column(Float)  # Percentage of profitable trades
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     def __repr__(self):
         return f"<TopInsider(name={self.owner_name}, trades={self.total_trades}, value={self.total_value_traded})>"
@@ -156,7 +156,7 @@ class InsiderAlert(Base):
     
     # Timing
     alert_date = Column(DateTime, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
     
     # Status
     is_active = Column(Integer, default=1)  # Boolean as integer for SQLite compatibility

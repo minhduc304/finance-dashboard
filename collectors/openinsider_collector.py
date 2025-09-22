@@ -5,7 +5,7 @@ Returns data without database operations
 
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 import time
 import random
@@ -103,7 +103,7 @@ class OpenInsiderCollector:
             trades = self._parse_trades_table(soup)
 
             # Filter by date
-            cutoff_date = datetime.now() - timedelta(days=days)
+            cutoff_date = datetime.now(timezone.utc).now() - timedelta(days=days)
             recent_trades = []
             for t in trades:
                 if t['trade_date'] and isinstance(t['trade_date'], datetime):

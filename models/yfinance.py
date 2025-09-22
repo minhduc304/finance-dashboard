@@ -1,7 +1,7 @@
 # models/yfinance.py
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, Numeric, Text, Index, Boolean, JSON
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Import shared Base from backend
 import sys
@@ -53,8 +53,8 @@ class StockInfo(Base):
     payout_ratio = Column(Float)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     def __repr__(self):
         return f"<StockInfo(ticker={self.ticker}, name={self.name})>"
@@ -81,7 +81,7 @@ class StockPrice(Base):
     volatility = Column(Float)  # Rolling volatility (optional)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
     
     # Composite index for efficient queries
     __table_args__ = (
@@ -119,7 +119,7 @@ class StockNews(Base):
     sentiment_label = Column(String(20))
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
     
     __table_args__ = (
         Index('idx_ticker_publish', 'primary_ticker', 'publish_time'),
@@ -158,8 +158,8 @@ class Earnings(Base):
     revenue_growth_yoy = Column(Float)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     __table_args__ = (
         Index('idx_ticker_date_period', 'ticker', 'earnings_date', 'period', unique=True),
@@ -210,8 +210,8 @@ class Financials(Base):
     profit_margin = Column(Float)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     __table_args__ = (
         Index('idx_financials_unique', 'ticker', 'statement_type', 'period_type', 'period_ending', unique=True),
@@ -238,7 +238,7 @@ class DividendHistory(Base):
     frequency = Column(String(20))  # quarterly, monthly, annual
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
     
     __table_args__ = (
         Index('idx_dividend_unique', 'ticker', 'ex_date', unique=True),
@@ -259,7 +259,7 @@ class StockSplit(Base):
     split_ratio = Column(String(20))  # "2:1", "3:2", etc.
     split_factor = Column(Float)  # Numerical representation
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
     
     __table_args__ = (
         Index('idx_split_unique', 'ticker', 'split_date', unique=True),
@@ -295,8 +295,8 @@ class AnalystRating(Base):
     
     # Timestamps
     last_updated = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     def __repr__(self):
         return f"<AnalystRating(ticker={self.ticker}, recommendation={self.recommendation})>"
