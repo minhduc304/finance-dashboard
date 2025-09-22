@@ -34,16 +34,16 @@ def populate_database():
         print(f"   Task ID: {result.id}")
         print(f"   Collecting data for: {', '.join(popular_tickers)}")
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   Error: {e}")
 
     # 2. Collect Reddit sentiment data
-    print("\n💬 Collecting Reddit sentiment...")
+    print("\n Collecting Reddit sentiment...")
     try:
         result = collect_reddit_sentiment.delay()
         print(f"   Task ID: {result.id}")
         print(f"   Analyzing posts from WSB, stocks, investing subreddits")
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   Error: {e}")
 
     # 3. Collect insider trading data
     print("\n👔 Collecting insider trading data...")
@@ -52,7 +52,7 @@ def populate_database():
         print(f"   Task ID: {result.id}")
         print(f"   Fetching latest insider trades from OpenInsider")
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   Error: {e}")
 
     # 4. Update portfolio values (this will work after portfolios are created)
     print("\n💼 Updating portfolio values...")
@@ -61,7 +61,7 @@ def populate_database():
         print(f"   Task ID: {result.id}")
         print(f"   Updating all portfolio valuations")
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"    Error: {e}")
 
     print("\n" + "=" * 50)
     print("✅ All tasks have been queued!")

@@ -1,5 +1,5 @@
 """
-Portfolio API endpoints - Enhanced version
+Portfolio API endpoints
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,9 +9,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.api.auth import get_current_user, get_current_user_optional
-from app.models import User, Portfolio, Holding, Transaction
-from app.services.data_service import DataService
+from app.models import Portfolio, Holding, Transaction
 
 router = APIRouter()
 
@@ -45,25 +43,18 @@ class TransactionResponse(BaseModel):
     transaction_date: datetime
 
 @router.get("/", response_model=List[PortfolioSummary])
-async def get_user_portfolios(
-    current_user: User = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
-):
-    """Get all portfolios for authenticated user"""
-    portfolios = db.query(Portfolio).filter(Portfolio.user_id == current_user.id).all()
+async def get_portfolios(db: Session = Depends(get_db)):
+    """Get all portfolios"""
+    portfolios = db.query(Portfolio).all()
     return portfolios
 
 @router.get("/{portfolio_id}", response_model=PortfolioSummary)
 async def get_portfolio_details(
     portfolio_id: int,
-    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Get specific portfolio details"""
-    portfolio = db.query(Portfolio).filter(
-        Portfolio.id == portfolio_id,
-        Portfolio.user_id == current_user.id
-    ).first()
+    portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
 
     if not portfolio:
         raise HTTPException(
@@ -76,15 +67,10 @@ async def get_portfolio_details(
 @router.get("/{portfolio_id}/holdings", response_model=List[HoldingResponse])
 async def get_portfolio_holdings(
     portfolio_id: int,
-    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    """Get holdings for a specific portfolio"""
-    # Verify user owns the portfolio
-    portfolio = db.query(Portfolio).filter(
-        Portfolio.id == portfolio_id,
-        Portfolio.user_id == current_user.id
-    ).first()
+    """Get all holdings for a specific portfolio"""
+    portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
 
     if not portfolio:
         raise HTTPException(
@@ -98,16 +84,11 @@ async def get_portfolio_holdings(
 @router.get("/{portfolio_id}/transactions", response_model=List[TransactionResponse])
 async def get_portfolio_transactions(
     portfolio_id: int,
-    limit: int = Query(50, description="Number of transactions to return"),
-    current_user: User = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    limit: int = Query(50, ge=1, le=1000)
 ):
-    """Get recent transactions for a portfolio"""
-    # Verify user owns the portfolio
-    portfolio = db.query(Portfolio).filter(
-        Portfolio.id == portfolio_id,
-        Portfolio.user_id == current_user.id
-    ).first()
+    """Get transaction history for a specific portfolio"""
+    portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
 
     if not portfolio:
         raise HTTPException(
@@ -115,59 +96,22 @@ async def get_portfolio_transactions(
             detail="Portfolio not found"
         )
 
-    transactions = db.query(Transaction).filter(
-        Transaction.portfolio_id == portfolio_id
-    ).order_by(Transaction.transaction_date.desc()).limit(limit).all()
-
+    transactions = (
+        db.query(Transaction)
+        .filter(Transaction.portfolio_id == portfolio_id)
+        .order_by(Transaction.transaction_date.desc())
+        .limit(limit)
+        .all()
+    )
     return transactions
-
-@router.post("/{portfolio_id}/update")
-async def update_portfolio_values(
-    portfolio_id: int,
-    current_user: User = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
-):
-    """Update portfolio with latest market prices"""
-    # Verify user owns the portfolio
-    portfolio = db.query(Portfolio).filter(
-        Portfolio.id == portfolio_id,
-        Portfolio.user_id == current_user.id
-    ).first()
-
-    if not portfolio:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Portfolio not found"
-        )
-
-    # Use data service to update portfolio
-    try:
-        result = DataService.update_portfolio(portfolio_id, db)
-        if "error" in result:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result["error"]
-            )
-        return result
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update portfolio: {str(e)}"
-        )
 
 @router.get("/{portfolio_id}/performance")
 async def get_portfolio_performance(
     portfolio_id: int,
-    days: int = Query(30, description="Number of days for performance calculation"),
-    current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    """Get portfolio performance metrics"""
-    # Verify user owns the portfolio
-    portfolio = db.query(Portfolio).filter(
-        Portfolio.id == portfolio_id,
-        Portfolio.user_id == current_user.id
-    ).first()
+    """Get performance metrics for a specific portfolio"""
+    portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
 
     if not portfolio:
         raise HTTPException(
@@ -175,62 +119,73 @@ async def get_portfolio_performance(
             detail="Portfolio not found"
         )
 
-    # Calculate performance metrics
     holdings = db.query(Holding).filter(Holding.portfolio_id == portfolio_id).all()
 
-    total_market_value = sum(h.market_value or 0 for h in holdings)
-    total_cost = sum(h.quantity * h.average_cost for h in holdings)
-    total_gain_loss = total_market_value - total_cost
-
-    # Get recent transactions for activity analysis
-    recent_date = datetime.utcnow() - timedelta(days=days)
-    recent_transactions = db.query(Transaction).filter(
-        Transaction.portfolio_id == portfolio_id,
-        Transaction.transaction_date >= recent_date
-    ).all()
+    # Calculate performance metrics
+    total_cost = sum(h.average_cost * h.quantity for h in holdings if h.average_cost and h.quantity)
+    total_market_value = sum(h.market_value for h in holdings if h.market_value)
+    total_unrealized_gain = sum(h.unrealized_gain for h in holdings if h.unrealized_gain)
 
     return {
         "portfolio_id": portfolio_id,
-        "period_days": days,
-        "total_market_value": total_market_value,
+        "portfolio_name": portfolio.name,
         "total_cost": total_cost,
-        "total_gain_loss": total_gain_loss,
-        "total_return_percent": (total_gain_loss / total_cost * 100) if total_cost > 0 else 0,
+        "total_market_value": total_market_value,
+        "total_unrealized_gain": total_unrealized_gain,
+        "total_gain_loss_percent": (total_unrealized_gain / total_cost * 100) if total_cost > 0 else 0,
         "holdings_count": len(holdings),
-        "recent_transactions": len(recent_transactions),
-        "cash_balance": portfolio.cash_balance,
-        "last_updated": portfolio.updated_at
+        "cash_balance": portfolio.cash_balance
     }
 
-@router.post("/{portfolio_id}/sync")
-async def sync_portfolio_with_broker(
-    portfolio_id: int,
-    current_user: User = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
-):
-    """Trigger sync with brokerage account (Wealthsimple)"""
-    # Verify user owns the portfolio
-    portfolio = db.query(Portfolio).filter(
-        Portfolio.id == portfolio_id,
-        Portfolio.user_id == current_user.id
-    ).first()
+@router.get("/aggregated/overview")
+async def get_aggregated_portfolio_overview(db: Session = Depends(get_db)):
+    """Get aggregated overview across all portfolios"""
+    portfolios = db.query(Portfolio).all()
 
-    if not portfolio:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Portfolio not found"
-        )
+    total_value = sum(p.total_value for p in portfolios if p.total_value)
+    total_cost = sum(p.total_cost for p in portfolios if p.total_cost)
+    total_gain_loss = sum(p.total_gain_loss for p in portfolios if p.total_gain_loss)
+    total_cash = sum(p.cash_balance for p in portfolios if p.cash_balance)
+
+    return {
+        "total_portfolios": len(portfolios),
+        "total_value": total_value,
+        "total_cost": total_cost,
+        "total_gain_loss": total_gain_loss,
+        "total_gain_loss_percent": (total_gain_loss / total_cost * 100) if total_cost > 0 else 0,
+        "total_cash_balance": total_cash,
+        "portfolios": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "value": p.total_value,
+                "gain_loss": p.total_gain_loss,
+                "updated_at": p.updated_at
+            }
+            for p in portfolios
+        ]
+    }
+
+@router.post("/sync")
+async def sync_portfolios(db: Session = Depends(get_db)):
+    """Trigger portfolio synchronization with Wealthsimple"""
 
     # Trigger background sync task
     try:
         from app.tasks import sync_wealthsimple_portfolios
-        task = sync_wealthsimple_portfolios.delay(current_user.id)
+        task = sync_wealthsimple_portfolios.delay()
 
         return {
             "message": "Portfolio sync initiated",
             "task_id": task.id,
             "status": "pending"
         }
+
+    except ImportError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Background task system not available"
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

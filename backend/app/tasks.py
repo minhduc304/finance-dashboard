@@ -115,9 +115,21 @@ def collect_reddit_sentiment(self):
                     # Collect and save comments
                     comments = collector.collect_comments(post_data['reddit_id'], limit=10)
                     for comment_data in comments:
+                        # Remove invalid field and create comment with correct mapping
+                        if 'post_reddit_id' in comment_data:
+                            del comment_data['post_reddit_id']
+
                         comment = RedditComment(
                             post_id=post.id,
-                            **comment_data
+                            reddit_id=comment_data.get('reddit_id'),
+                            author=comment_data.get('author'),
+                            content=comment_data.get('content'),
+                            score=comment_data.get('score', 0),
+                            mentioned_tickers=comment_data.get('mentioned_tickers'),
+                            sentiment_score=comment_data.get('sentiment_score'),
+                            sentiment_label=comment_data.get('sentiment_label'),
+                            created_utc=comment_data.get('created_utc'),
+                            scraped_at=comment_data.get('scraped_at', datetime.datetime.now(datetime.UTC))
                         )
                         db.add(comment)
 
@@ -125,10 +137,9 @@ def collect_reddit_sentiment(self):
         for ticker, sentiment_avg in trending_data['ticker_sentiment'].items():
             sentiment_summary = StockSentiment(
                 ticker=ticker,
-                source='reddit',
-                sentiment_score=sentiment_avg,
-                mentions_count=trending_data['trending_tickers'].get(ticker, 0),
-                date=datetime.utcnow().date()
+                avg_sentiment=sentiment_avg,  # Use correct field name
+                total_mentions=trending_data['trending_tickers'].get(ticker, 0),  # Use correct field name
+                date=datetime.datetime.now(datetime.UTC).date()  # Should be date, not datetime
             )
             db.add(sentiment_summary)
 
@@ -162,24 +173,25 @@ def collect_insider_trading(self):
 
         saved_count = 0
         for trade_data in trades:
-            # Check if trade exists
+            # Check if trade exists (use correct field mapping)
             existing = db.query(InsiderTrade).filter_by(
                 ticker=trade_data.get('ticker'),
-                insider_name=trade_data.get('insider_name'),
-                filing_date=trade_data.get('filing_date')
+                owner_name=trade_data.get('insider_name'),  # Map insider_name to owner_name
+                transaction_date=trade_data.get('filing_date')  # Map filing_date to transaction_date
             ).first()
 
             if not existing:
                 trade = InsiderTrade(
                     ticker=trade_data.get('ticker'),
                     company_name=trade_data.get('company_name'),
-                    insider_name=trade_data.get('insider_name'),
-                    insider_title=trade_data.get('insider_title'),
-                    trade_type=trade_data.get('trade_type'),
-                    price=trade_data.get('price'),
+                    owner_name=trade_data.get('insider_name'),  # Map insider_name to owner_name
+                    title=trade_data.get('insider_title'),  # Map insider_title to title
+                    transaction_type=trade_data.get('trade_type'),  # Map trade_type to transaction_type
+                    last_price=trade_data.get('price'),  # Map price to last_price
                     quantity=trade_data.get('quantity'),
                     value=trade_data.get('value'),
-                    filing_date=trade_data.get('filing_date')
+                    transaction_date=trade_data.get('filing_date'),  # Map filing_date to transaction_date
+                    trade_date=trade_data.get('filing_date')  # Use filing_date for trade_date too
                 )
                 db.add(trade)
                 saved_count += 1
@@ -195,28 +207,17 @@ def collect_insider_trading(self):
 
 
 @shared_task(bind=True, max_retries=2)
-def sync_wealthsimple_portfolios(self, user_id: int = None):
+def sync_wealthsimple_portfolios(self):
     """Sync Wealthsimple portfolio data and save to database"""
     try:
         from collectors.wealthsimple_collector import WealthsimpleCollector
         from backend.app.core.database import SessionLocal
-        from backend.app.models import User, Portfolio, Holding, Transaction
+        from backend.app.models import Portfolio, Holding, Transaction
 
         collector = WealthsimpleCollector()
         db = SessionLocal()
 
-        # Get user credentials (in production, decrypt these)
-        if user_id:
-            user = db.query(User).get(user_id)
-            if not user:
-                return {"status": "failed", "error": "User not found"}
-        else:
-            # Default user for development
-            user = db.query(User).first()
-            if not user:
-                return {"status": "failed", "error": "No user found"}
-
-        # Authenticate (this would use stored credentials in production)
+        # Authenticate with Wealthsimple (credentials from environment/config)
         if not collector.authenticate():
             return {"status": "failed", "error": "Authentication failed"}
 
@@ -226,20 +227,18 @@ def sync_wealthsimple_portfolios(self, user_id: int = None):
         # Save portfolio summary
         for account_data in portfolio_data['portfolio_summary']['accounts']:
             portfolio = db.query(Portfolio).filter_by(
-                user_id=user.id,
                 name=account_data['description']
             ).first()
 
             if not portfolio:
                 portfolio = Portfolio(
-                    user_id=user.id,
                     name=account_data['description']
                 )
                 db.add(portfolio)
 
             portfolio.total_value = account_data['value']
             portfolio.cash_balance = account_data['cash_balance']
-            portfolio.updated_at = datetime.utcnow()
+            portfolio.updated_at = datetime.datetime.now(datetime.UTC)
 
             db.commit()
 
@@ -251,12 +250,13 @@ def sync_wealthsimple_portfolios(self, user_id: int = None):
                 if holding_data['account_id'] == account_data['id']:
                     holding = Holding(
                         portfolio_id=portfolio.id,
-                        symbol=holding_data['symbol'],
+                        ticker=holding_data['symbol'],  
+                        name=holding_data.get('name'),
                         quantity=holding_data['quantity'],
                         average_cost=holding_data['average_cost'],
                         current_price=holding_data['current_price'],
                         market_value=holding_data['market_value'],
-                        gain_loss=holding_data['gain_loss']
+                        unrealized_gain=holding_data.get('gain_loss', 0)  
                     )
                     db.add(holding)
 
@@ -325,7 +325,7 @@ def update_portfolio_values(self):
 
             portfolio.total_value = total_value
             portfolio.total_gain_loss = total_value - portfolio.total_cost
-            portfolio.updated_at = datetime.utcnow()
+            portfolio.updated_at = datetime.now(datetime.timezone.utc)
             updated_count += 1
 
         db.commit()
@@ -346,7 +346,7 @@ def cleanup_old_data():
         from backend.app.models import StockPrice, StockNews, RedditPost
 
         db = SessionLocal()
-        cutoff_date = datetime.utcnow() - timedelta(days=90)
+        cutoff_date = datetime.now(datetime.timezone.utc) - timedelta(days=90)
 
         # Delete old price data
         deleted_prices = db.query(StockPrice).filter(
@@ -354,13 +354,13 @@ def cleanup_old_data():
         ).delete()
 
         # Delete old news
-        news_cutoff = datetime.utcnow() - timedelta(days=30)
+        news_cutoff = datetime.now(datetime.timezone.utc) - timedelta(days=30)
         deleted_news = db.query(StockNews).filter(
             StockNews.published_at < news_cutoff
         ).delete()
 
         # Delete old reddit posts
-        reddit_cutoff = datetime.utcnow() - timedelta(days=7)
+        reddit_cutoff = datetime.now(datetime.timezone.utc) - timedelta(days=7)
         deleted_posts = db.query(RedditPost).filter(
             RedditPost.created_utc < reddit_cutoff
         ).delete()
@@ -412,12 +412,11 @@ def analyze_ticker_sentiment(self, ticker: str):
             # Save to database
             sentiment_record = StockSentiment(
                 ticker=ticker.upper(),
-                source='reddit_analysis',
-                sentiment_score=avg_sentiment,
-                positive_mentions=positive_count,
-                negative_mentions=negative_count,
-                mentions_count=len(all_sentiments),
-                date=datetime.utcnow().date()
+                avg_sentiment=avg_sentiment, 
+                positive_count=positive_count,  
+                negative_count=negative_count,  
+                total_mentions=len(all_sentiments),  
+                date=datetime.datetime.now(datetime.UTC).date()
             )
             db.add(sentiment_record)
             db.commit()

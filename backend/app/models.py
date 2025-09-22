@@ -9,9 +9,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-# Import all models
-from models.user import User
-from models.auth import WealthsimpleAuth
+# Import all models (no user/auth - single-user local app)
 from models.portfolio import (
     Portfolio, Holding, Transaction,
     PerformanceHistory, Watchlist, Alert
@@ -28,7 +26,6 @@ from models.social_sentiment import (
 )
 
 __all__ = [
-    'User', 'WealthsimpleAuth',
     'Portfolio', 'Holding', 'Transaction', 'PerformanceHistory', 'Watchlist', 'Alert',
     'StockInfo', 'StockPrice', 'StockNews', 'Earnings', 'Financials',
     'DividendHistory', 'StockSplit', 'AnalystRating',
