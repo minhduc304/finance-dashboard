@@ -5,13 +5,12 @@ Returns data without database operations
 
 import os
 import getpass
-import json
 from datetime import datetime, timedelta, timezone
 from ws_api import WealthsimpleAPI, WSAPISession
 from typing import List, Optional, Dict, Any
 
 SESSION_FILE = 'ws_session.json'
-CACHE_DURATION = timedelta(hours=6)
+CACHE_DURATION = timedelta(hours=12)
 
 class WealthsimpleCollector:
     """Pure data collector for Wealthsimple - no database operations"""
@@ -66,28 +65,43 @@ class WealthsimpleCollector:
 
         return True
 
-    def get_accounts(self) -> List[Dict]:
+    def _get_accounts(self) -> List[Dict]:
         """Get all account information"""
         if not self.ws_api:
             raise Exception("Not authenticated. Call authenticate() first.")
 
         accounts = self.ws_api.get_accounts()
-        return [
-            {
+        parsed_accounts = []
+
+        for account in accounts:
+            # Extract nested financial values
+            financials = account.get('financials', {})
+            current_combined = financials.get('currentCombined', {})
+            net_liquidation = current_combined.get('netLiquidationValue', {})
+
+            # Get the value in dollars (amount field is string)
+            value_str = net_liquidation.get('amount', '0')
+            value = float(value_str) if value_str else 0.0
+
+            # Note: There's no direct cash_balance field, using netLiquidationValue for now
+            # Could potentially calculate from deposits - withdrawals
+
+            parsed_account = {
                 'id': account['id'],
-                'description': account['description'],
+                'description': account.get('description', account.get('nickname', 'Unknown')),
                 'account_type': account.get('type', 'unknown'),
-                'value': float(account.get('value', 0)),
-                'cash_balance': float(account.get('cash_balance', 0)),
+                'value': value,
+                'cash_balance': value,  # Using total value as cash for now
                 'currency': account.get('currency', 'CAD'),
                 'status': account.get('status', 'unknown')
             }
-            for account in accounts
-        ]
+            parsed_accounts.append(parsed_account)
+
+        return parsed_accounts
 
     def get_portfolio_summary(self) -> Dict[str, Any]:
         """Get summary of all portfolios"""
-        accounts = self.get_accounts()
+        accounts = self._get_accounts()
 
         total_value = sum(acc['value'] for acc in accounts)
         total_cash = sum(acc['cash_balance'] for acc in accounts)
@@ -108,39 +122,83 @@ class WealthsimpleCollector:
             raise Exception("Not authenticated. Call authenticate() first.")
 
         all_holdings = []
-        accounts = self.get_accounts()
+        accounts = self._get_accounts()
 
         target_accounts = [acc for acc in accounts if account_id is None or acc['id'] == account_id]
 
         for account in target_accounts:
             try:
-                holdings = self.ws_api.get_holdings(account['id'])
+                # Get account balances returns {security_id: quantity}
+                balances = self.ws_api.get_account_balances(account['id'])
 
-                for holding_data in holdings:
-                    security = holding_data.get('security', {})
+                if not balances:
+                    continue
+
+                for security_id, quantity in balances.items():
+                    if quantity == 0:
+                        continue
+
+                    symbol = security_id
+                    name = security_id
+                    current_price = 0
+                    currency = 'CAD'
+                    security_type = 'unknown'
+                    market_value = 0
+
+                    try:
+                        # Try to get market data for the security
+                        market_data = self.ws_api.get_security_market_data(security_id)
+
+                        # Extract relevant fields from market data
+                        symbol = market_data.get('symbol', security_id)
+                        name = market_data.get('name', security_id)
+
+                        # Try different fields for price
+                        quote = market_data.get('quote', {})
+                        current_price = float(quote.get('last', 0) or quote.get('price', 0) or quote.get('amount', 0))
+
+                        # If still no price, check top level
+                        if current_price == 0:
+                            current_price = float(market_data.get('last_price', 0) or market_data.get('price', 0))
+
+                        currency = market_data.get('currency', 'CAD')
+                        security_type = market_data.get('type', 'stock')
+
+                    except Exception:
+                        # For crypto or special securities, parse the ID
+                        if ' - ' in security_id:
+                            parts = security_id.split(' - ')
+                            symbol = parts[0]
+                            name = parts[1] if len(parts) > 1 else security_id
+                            security_type = 'crypto'
+                        elif security_id.startswith('sec-'):
+                            # Cash or special security
+                            symbol = security_id
+                            name = 'Cash' if 'cad' in security_id.lower() else security_id
+                            current_price = 1.0 if 'cad' in security_id.lower() else 0
+                            security_type = 'cash'
+
+                    # Calculate market value
+                    market_value = float(quantity) * float(current_price)
 
                     holding = {
                         'account_id': account['id'],
                         'account_name': account['description'],
-                        'symbol': security.get('symbol', 'UNKNOWN'),
-                        'name': security.get('name', 'Unknown Security'),
-                        'quantity': float(holding_data.get('quantity', 0)),
-                        'average_cost': float(holding_data.get('average_cost', 0)),
-                        'current_price': float(security.get('last_price', 0)),
-                        'market_value': float(holding_data.get('market_value', 0)),
-                        'currency': security.get('currency', 'CAD'),
-                        'security_type': security.get('type', 'stock'),
-                        'gain_loss': 0  # Will be calculated
+                        'symbol': symbol,
+                        'name': name,
+                        'quantity': float(quantity),
+                        'average_cost': 0,  # Will need to calculate from activities
+                        'current_price': float(current_price),
+                        'market_value': float(market_value),
+                        'currency': currency,
+                        'security_type': security_type,
+                        'gain_loss': 0,  # Cannot calculate without average cost
+                        'gain_loss_percent': 0  # Cannot calculate without average cost
                     }
-
-                    # Calculate gain/loss
-                    total_cost = holding['quantity'] * holding['average_cost']
-                    holding['gain_loss'] = holding['market_value'] - total_cost
-                    holding['gain_loss_percent'] = (holding['gain_loss'] / total_cost * 100) if total_cost > 0 else 0
 
                     all_holdings.append(holding)
 
-            except Exception as e:
+            except Exception:
                 # Continue with other accounts if one fails
                 continue
 
@@ -152,7 +210,7 @@ class WealthsimpleCollector:
             raise Exception("Not authenticated. Call authenticate() first.")
 
         all_transactions = []
-        accounts = self.get_accounts()
+        accounts = self._get_accounts()
 
         target_accounts = [acc for acc in accounts if account_id is None or acc['id'] == account_id]
         cutoff_date = datetime.now() - timedelta(days=days_back)
@@ -163,12 +221,21 @@ class WealthsimpleCollector:
 
                 for activity in activities:
                     try:
-                        # Parse transaction date
-                        trans_date = datetime.fromisoformat(activity['occurredAt'].replace('Z', '+00:00'))
+                        # Parse transaction date - try different field names
+                        date_str = activity.get('occurredAt') or activity.get('occurred_at') or activity.get('createdAt')
+                        if not date_str:
+                            continue
+
+                        trans_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
 
                         # Skip old transactions
-                        if trans_date < cutoff_date:
+                        if trans_date.replace(tzinfo=None) < cutoff_date:
                             continue
+
+                        # Get symbol - might be in different fields
+                        symbol = activity.get('symbol')
+                        if not symbol and 'security_id' in activity:
+                            symbol = self.ws_api.security_id_to_symbol(activity['security_id'])
 
                         transaction = {
                             'account_id': account['id'],
@@ -176,10 +243,10 @@ class WealthsimpleCollector:
                             'transaction_id': activity.get('id'),
                             'type': self._determine_transaction_type(activity),
                             'description': activity.get('description', ''),
-                            'symbol': activity.get('symbol'),
+                            'symbol': symbol,
                             'quantity': float(activity.get('quantity', 0)),
                             'price': float(activity.get('price', 0)),
-                            'total_amount': float(activity.get('amount', 0)),
+                            'total_amount': float(activity.get('amount', 0) or activity.get('net_amount', 0)),
                             'currency': activity.get('currency', 'CAD'),
                             'transaction_date': trans_date,
                             'status': activity.get('status', 'unknown')
@@ -270,7 +337,28 @@ class WealthsimpleCollector:
     def _determine_transaction_type(self, activity: Dict) -> str:
         """Determine transaction type from activity description"""
         description = activity.get('description', '').lower()
+        activity_type = activity.get('type', '').lower()
+        sub_type = activity.get('sub_type', '').lower()
 
+        # Check type field first
+        if 'buy' in activity_type or 'bought' in activity_type:
+            return 'buy'
+        elif 'sell' in activity_type or 'sold' in activity_type:
+            return 'sell'
+        elif 'dividend' in activity_type:
+            return 'dividend'
+        elif 'deposit' in activity_type or 'funding' in activity_type:
+            return 'deposit'
+        elif 'withdrawal' in activity_type or 'redeem' in activity_type:
+            return 'withdrawal'
+
+        # Check sub_type
+        if 'buy' in sub_type:
+            return 'buy'
+        elif 'sell' in sub_type:
+            return 'sell'
+
+        # Check description
         if 'buy' in description or 'bought' in description:
             return 'buy'
         elif 'sell' in description or 'sold' in description:
@@ -294,3 +382,8 @@ class WealthsimpleCollector:
             'transactions': self.get_transactions(days_back=30),
             'performance': self.get_performance_data(days_back=30)
         }
+    
+if __name__ == "__main__":
+    ws = WealthsimpleCollector()
+    ws.authenticate()
+    print(ws.collect_all_data())
