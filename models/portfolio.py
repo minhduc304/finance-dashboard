@@ -1,5 +1,5 @@
 """
-Simple portfolio models for tracking user investments
+Portfolio models for local finance dashboard
 """
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, JSON
@@ -15,11 +15,10 @@ from app.core.database import Base
 
 
 class Portfolio(Base):
-    """User portfolio"""
+    """Portfolio for tracking investments"""
     __tablename__ = 'portfolios'
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     name = Column(String(100), nullable=False)
 
     # Current values
@@ -111,7 +110,6 @@ class Watchlist(Base):
     __tablename__ = 'watchlists'
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     name = Column(String(100), nullable=False)
     description = Column(String(500))
     tickers = Column(JSON)  # List of stock tickers
@@ -128,7 +126,6 @@ class Alert(Base):
     __tablename__ = 'alerts'
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
 
     # Alert config
     symbol = Column(String(20), nullable=False)

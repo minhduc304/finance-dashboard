@@ -1,6 +1,5 @@
 """
-Advanced Sentiment Analyzer for Financial Reddit Content
-Implements Priority 1 & 2 improvements from sentiment analysis report
+Sentiment Analyzer for Financial Reddit Content
 """
 
 import re
@@ -8,7 +7,6 @@ from typing import Dict, List, Optional, Tuple
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
 import nltk
-from datetime import datetime
 
 class FinancialSentimentAnalyzer:
     """
@@ -364,41 +362,3 @@ class FinancialSentimentAnalyzer:
             "negative_pct": round(negative_count / len(valid_sentiments), 4),
             "neutral_pct": round(neutral_count / len(valid_sentiments), 4)
         }
-
-
-if __name__ == "__main__":
-    # Test the sentiment analyzer
-    analyzer = FinancialSentimentAnalyzer()
-
-    # Test cases from the database analysis
-    test_cases = [
-        {
-            "text": "TSLA saved my account from $3k → $21k 💎🙌",
-            "subreddit": "wallstreetbets"
-        },
-        {
-            "text": "How Tesla Stocks rises",
-            "subreddit": "stocks"
-        },
-        {
-            "text": "Rate My Portfolio - r/Stocks Quarterly Thread September 2025",
-            "subreddit": "stocks"
-        },
-        {
-            "text": "The market is going to crash hard. Sell everything now!",
-            "subreddit": "investing"
-        },
-        {
-            "text": "Not bullish on this stock anymore",
-            "subreddit": "stocks"
-        },
-        {
-            "text": "Great job losing all your money! /s",
-            "subreddit": "wallstreetbets"
-        }
-    ]
-
-    # Test sentiment analyzer
-    for test in test_cases:
-        result = analyzer.calculate_sentiment(test["text"], test["subreddit"])
-        # Test results available in result dict
