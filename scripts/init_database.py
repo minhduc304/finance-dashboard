@@ -21,8 +21,8 @@ load_dotenv()
 from backend.app.core.database import Base
 
 # Import all models to register them with Base
-from models.user import User
-from models.auth import WealthsimpleAuth
+# from models.user_old import User
+# from models.auth_old import WealthsimpleAuth
 from models.portfolio import (
     Portfolio, Holding, Transaction,
     PerformanceHistory, Watchlist, Alert
