@@ -128,12 +128,29 @@ async def get_insider_trades(
 
     trades = query.order_by(InsiderTrade.transaction_date.desc()).all()
 
+    # Convert SQLAlchemy models to Pydantic response models
+    trade_responses = []
+    for trade in trades:
+        trade_responses.append(InsiderTradeResponse(
+            transaction_date=trade.transaction_date,
+            trade_date=trade.trade_date,
+            company_name=trade.company_name,
+            owner_name=trade.owner_name,
+            title=trade.title,
+            transaction_type=trade.transaction_type,
+            last_price=trade.last_price,
+            quantity=trade.quantity,
+            shares_held=trade.shares_held,
+            ownership_percentage=trade.ownership_percentage,
+            value=trade.value
+        ))
+
     return StockInsiderTradesResponse(
         ticker=ticker.upper(),
         period_days=days,
         transaction_type_filter=transaction_type,
         total_trades=len(trades),
-        trades=trades
+        trades=trade_responses
     )
 
 
@@ -152,10 +169,23 @@ async def get_insider_alerts(
 
         alerts = query.order_by(InsiderAlert.alert_date.desc()).limit(limit).all()
 
+        # Convert SQLAlchemy models to Pydantic response models
+        alert_responses = []
+        for alert in alerts:
+            alert_responses.append(InsiderAlertResponse(
+                alert_type=alert.alert_type,
+                ticker=alert.ticker,
+                company_name=alert.company_name,
+                message=alert.message,
+                severity=alert.severity,
+                alert_date=alert.alert_date,
+                details=alert.details
+            ))
+
         return InsiderAlertsResponse(
             count=len(alerts),
             severity_filter=severity,
-            alerts=alerts
+            alerts=alert_responses
         )
 
     except Exception:

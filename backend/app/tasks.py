@@ -163,6 +163,9 @@ def collect_market_data(self, tickers=None):
 
                         if not existing_price:
                             price_data = row.to_dict()
+                            # Remove fields that don't exist in StockPrice model
+                            price_data.pop('dividends', None)
+                            price_data.pop('stock_splits', None)
                             price = StockPrice(**price_data)
                             db.add(price)
 

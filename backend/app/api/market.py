@@ -124,10 +124,23 @@ async def get_stock_news(
         StockNews.primary_ticker == ticker.upper()
     ).order_by(StockNews.publish_time.desc()).limit(limit).all()
 
+    # Convert SQLAlchemy models to Pydantic response models
+    article_responses = []
+    for article in news:
+        article_responses.append(NewsArticle(
+            title=article.title,
+            link=article.link,
+            publisher=article.publisher,
+            publish_time=article.publish_time,
+            related_tickers=article.related_tickers,
+            sentiment_score=article.sentiment_score,
+            sentiment_label=article.sentiment_label
+        ))
+
     return StockNewsResponse(
         ticker=ticker.upper(),
         count=len(news),
-        articles=news
+        articles=article_responses
     )
 
 
