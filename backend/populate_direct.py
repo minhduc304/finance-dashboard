@@ -137,9 +137,14 @@ def populate_database_direct():
         # Get all unique tickers from holdings
         holdings = db.query(Holding).all()
         tickers = set()
+        # List of cash/money market symbols to exclude
+        cash_symbols = ['SEC-C-CAD', 'CASH', 'CAD', 'USD']
         for holding in holdings:
             if holding.ticker:
-                tickers.add(holding.ticker.upper())
+                ticker_upper = holding.ticker.upper()
+                # Skip cash accounts and money market funds
+                if ticker_upper not in cash_symbols and not ticker_upper.startswith('SEC-'):
+                    tickers.add(ticker_upper)
 
         if not tickers:
             print("   No holdings found, skipping watchlist update")
@@ -188,9 +193,14 @@ def populate_database_direct():
         # Get tickers from portfolio holdings first
         holdings = db.query(Holding).all()
         tickers = set()
+        # List of cash/money market symbols to exclude
+        cash_symbols = ['SEC-C-CAD', 'CASH', 'CAD', 'USD']
         for holding in holdings:
             if holding.ticker:
-                tickers.add(holding.ticker)
+                ticker_upper = holding.ticker.upper()
+                # Skip cash accounts and money market funds
+                if ticker_upper not in cash_symbols and not ticker_upper.startswith('SEC-'):
+                    tickers.add(holding.ticker)
 
         # If no holdings, use default popular tickers
         if not tickers:

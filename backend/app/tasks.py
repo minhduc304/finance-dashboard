@@ -122,9 +122,14 @@ def collect_market_data(self, tickers=None):
             # First try to get tickers from portfolio holdings
             holdings = db.query(Holding).all()
             tickers = set()
+            # List of cash/money market symbols to exclude
+            cash_symbols = ['SEC-C-CAD', 'CASH', 'CAD', 'USD']
             for holding in holdings:
                 if holding.ticker:
-                    tickers.add(holding.ticker)
+                    ticker_upper = holding.ticker.upper()
+                    # Skip cash accounts and money market funds
+                    if ticker_upper not in cash_symbols and not ticker_upper.startswith('SEC-'):
+                        tickers.add(holding.ticker)
 
             # If no holdings, fall back to watchlists
             if not tickers:
@@ -165,7 +170,8 @@ def collect_market_data(self, tickers=None):
                             price_data = row.to_dict()
                             # Remove fields that don't exist in StockPrice model
                             price_data.pop('dividends', None)
-                            price_data.pop('stock_splits', None)
+                            price_data.pop('stock splits', None)  # Note: space in column name
+                            price_data.pop('stock_splits', None)  # Just in case
                             price = StockPrice(**price_data)
                             db.add(price)
 
@@ -363,9 +369,14 @@ def populate_watchlist_from_holdings(self):
         # Get all unique tickers from holdings
         holdings = db.query(Holding).all()
         tickers = set()
+        # List of cash/money market symbols to exclude
+        cash_symbols = ['SEC-C-CAD', 'CASH', 'CAD', 'USD']
         for holding in holdings:
             if holding.ticker:
-                tickers.add(holding.ticker.upper())
+                ticker_upper = holding.ticker.upper()
+                # Skip cash accounts and money market funds
+                if ticker_upper not in cash_symbols and not ticker_upper.startswith('SEC-'):
+                    tickers.add(ticker_upper)
 
         if not tickers:
             logger.info("No holdings found, skipping watchlist update")

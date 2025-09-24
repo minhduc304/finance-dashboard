@@ -54,7 +54,7 @@ class DataService:
                 "name": stock_info.name,
                 "sector": stock_info.sector,
                 "market_cap": stock_info.market_cap,
-                "pe_ratio": stock_info.pe_ratio,
+                "trailing_pe": stock_info.trailing_pe,
                 "dividend_yield": stock_info.dividend_yield
             },
             "prices": [

@@ -382,8 +382,3 @@ class WealthsimpleCollector:
             'transactions': self.get_transactions(days_back=30),
             'performance': self.get_performance_data(days_back=30)
         }
-    
-if __name__ == "__main__":
-    ws = WealthsimpleCollector()
-    ws.authenticate()
-    print(ws.collect_all_data())

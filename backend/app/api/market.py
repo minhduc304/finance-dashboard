@@ -27,6 +27,7 @@ class StockInfoResponse(BaseModel):
     trailing_pe: Optional[float]
     dividend_yield: Optional[float]
     updated_at: Optional[datetime]
+    current_price: Optional[float]
 
 class PricePoint(BaseModel):
     date: datetime
@@ -66,6 +67,58 @@ class TrendingResponse(BaseModel):
     period: str
     count: int
     stocks: List[TrendingStock]
+
+
+@router.get("/stocks", response_model=List[StockInfoResponse])
+async def get_all_stocks(
+    db: Session = Depends(get_db)
+):
+    """Get all available stocks with latest prices"""
+    from sqlalchemy import func, and_
+
+    # Subquery to get the latest price date for each ticker
+    latest_price_subq = db.query(
+        StockPrice.ticker,
+        func.max(StockPrice.date).label('latest_date')
+    ).group_by(StockPrice.ticker).subquery()
+
+    # Query stocks with their latest prices
+    stocks_with_prices = db.query(
+        StockInfo,
+        StockPrice.close.label('current_price')
+    ).outerjoin(
+        latest_price_subq,
+        StockInfo.ticker == latest_price_subq.c.ticker
+    ).outerjoin(
+        StockPrice,
+        and_(
+            StockInfo.ticker == StockPrice.ticker,
+            StockPrice.date == latest_price_subq.c.latest_date
+        )
+    ).filter(
+        StockInfo.ticker != 'SEC-C-CAD'  # Exclude cash accounts
+    ).all()
+
+    # Transform results to include current_price
+    results = []
+    for stock_info, current_price in stocks_with_prices:
+        stock_dict = {
+            'ticker': stock_info.ticker,
+            'name': stock_info.name,
+            'long_name': stock_info.long_name,
+            'sector': stock_info.sector,
+            'industry': stock_info.industry,
+            'exchange': stock_info.exchange,
+            'market_cap': stock_info.market_cap,
+            'beta': stock_info.beta,
+            'trailing_pe': stock_info.trailing_pe,
+            'dividend_yield': stock_info.dividend_yield,
+            'updated_at': stock_info.updated_at,
+            'current_price': float(current_price) if current_price else None
+        }
+        results.append(stock_dict)
+
+    return results
 
 
 @router.get("/stocks/{ticker}", response_model=StockInfoResponse)

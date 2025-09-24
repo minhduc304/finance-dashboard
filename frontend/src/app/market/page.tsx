@@ -37,30 +37,32 @@ export default function MarketPage() {
   const fetchMarketData = async () => {
     setLoading(true);
     try {
-      // Fetch data for major stocks
-      const stockTickers = ["AAPL", "MSFT", "GOOGL", "TSLA"];
-      const stockPromises = stockTickers.map(async (ticker) => {
-        try {
-          const stockInfo = await marketService.getStockInfo(ticker);
-          return {
-            ticker: stockInfo.ticker,
-            name: stockInfo.long_name || stockInfo.name || ticker,
-            current_price: stockInfo.current_price || 0,
-            market_cap: stockInfo.market_cap || 0,
-            sector: stockInfo.sector || "Technology",
-            industry: stockInfo.industry || "N/A",
-            beta: stockInfo.beta || 0,
-            trailing_pe: stockInfo.trailing_pe || 0,
-            dividend_yield: stockInfo.dividend_yield || 0
-          };
-        } catch (error) {
-          console.error(`Error fetching data for ${ticker}:`, error);
-          return null;
-        }
-      });
+      // Fetch all available stocks from the database
+      const response = await fetch("/api/v1/market/stocks");
+      if (response.ok) {
+        const allStocks = await response.json();
 
-      const stocksData = await Promise.all(stockPromises);
-      setStocks(stocksData.filter(stock => stock !== null));
+        // Transform stocks and sort by market cap (don't limit to 10)
+        const transformedStocks = allStocks
+          .map((stock: any) => ({
+            ticker: stock.ticker,
+            name: stock.long_name || stock.name || stock.ticker,
+            current_price: stock.current_price || 0,
+            market_cap: stock.market_cap || 0,
+            sector: stock.sector || "N/A",
+            industry: stock.industry || "N/A",
+            beta: stock.beta || 0,
+            trailing_pe: stock.trailing_pe || 0,
+            dividend_yield: stock.dividend_yield || 0
+          }))
+          .filter((stock: any) => stock.market_cap > 0 || stock.current_price > 0)
+          .sort((a: any, b: any) => b.market_cap - a.market_cap);
+
+        setStocks(transformedStocks);
+      } else {
+        console.error("Failed to fetch stocks");
+        setStocks([]);
+      }
 
       // Fetch news for the first ticker
       try {
@@ -129,9 +131,10 @@ export default function MarketPage() {
             Current stock prices and key metrics
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
+        <CardContent className="p-0">
+          <div className="max-h-[600px] overflow-auto relative">
+            <Table>
+            <TableHeader className="sticky top-0 bg-background z-10">
               <TableRow>
                 <TableHead>Symbol</TableHead>
                 <TableHead>Company</TableHead>
@@ -166,7 +169,7 @@ export default function MarketPage() {
                     </TableCell>
                     <TableCell>{stock.name}</TableCell>
                     <TableCell className="font-medium">
-                      {formatCurrency(stock.current_price)}
+                      {stock.current_price > 0 ? formatCurrency(stock.current_price) : "N/A"}
                     </TableCell>
                     <TableCell>{formatMarketCap(stock.market_cap)}</TableCell>
                     <TableCell>
@@ -175,13 +178,14 @@ export default function MarketPage() {
                     <TableCell>{stock.trailing_pe?.toFixed(1) || "N/A"}</TableCell>
                     <TableCell>{stock.beta?.toFixed(2) || "N/A"}</TableCell>
                     <TableCell>
-                      {stock.dividend_yield ? `${(stock.dividend_yield * 100).toFixed(2)}%` : "0%"}
+                      {stock.dividend_yield ? `${stock.dividend_yield.toFixed(2)}%` : "0%"}
                     </TableCell>
                   </TableRow>
                 ))
               )}
             </TableBody>
-          </Table>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

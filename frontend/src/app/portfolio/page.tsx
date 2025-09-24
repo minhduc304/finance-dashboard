@@ -263,8 +263,8 @@ export default function PortfolioPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {holdings.map((holding) => (
-                <TableRow key={holding.ticker}>
+              {holdings.map((holding, index) => (
+                <TableRow key={`${holding.ticker}-${index}`}>
                   <TableCell>
                     <Badge variant="secondary">{holding.ticker}</Badge>
                   </TableCell>

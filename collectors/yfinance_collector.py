@@ -21,7 +21,7 @@ class YFinanceCollector:
             'sector': info.get('sector'),
             'industry': info.get('industry'),
             'market_cap': info.get('marketCap'),
-            'pe_ratio': info.get('trailingPE'),
+            'trailing_pe': info.get('trailingPE'),
             'dividend_yield': info.get('dividendYield'),
             'beta': info.get('beta')
         }
