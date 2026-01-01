@@ -22,7 +22,10 @@ from models.openinsider import (
     InsiderTrade, InsiderSummary, TopInsider, InsiderAlert
 )
 from models.social_sentiment import (
-    RedditPost, RedditComment, StockSentiment
+    RedditPost, RedditComment, StockSentiment, SentimentValidationSample
+)
+from models.alphavantage import (
+    TechnicalIndicator, CompanyFundamentals
 )
 
 __all__ = [
@@ -30,5 +33,6 @@ __all__ = [
     'StockInfo', 'StockPrice', 'StockNews', 'Earnings', 'Financials',
     'DividendHistory', 'StockSplit', 'AnalystRating',
     'InsiderTrade', 'InsiderSummary', 'TopInsider', 'InsiderAlert',
-    'RedditPost', 'RedditComment', 'StockSentiment'
+    'RedditPost', 'RedditComment', 'StockSentiment', 'SentimentValidationSample',
+    'TechnicalIndicator', 'CompanyFundamentals'
 ]

@@ -67,20 +67,48 @@ class RedditComment(Base):
 class StockSentiment(Base):
     """Daily sentiment summary per stock"""
     __tablename__ = "stock_sentiment"
-    
+
     id = Column(Integer, primary_key=True)
     ticker = Column(String(10))  # AAPL, MSFT, etc.
     date = Column(DateTime)
-    
+
     # Counts
     total_mentions = Column(Integer, default=0)
     total_posts = Column(Integer, default=0)
     total_comments = Column(Integer, default=0)
-    
+
     # Sentiment averages
     avg_sentiment = Column(Float)  # Average of all sentiment scores
     positive_count = Column(Integer, default=0)
     negative_count = Column(Integer, default=0)
     neutral_count = Column(Integer, default=0)
-    
+
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+
+class SentimentValidationSample(Base):
+    """Manually labeled samples for accuracy validation"""
+    __tablename__ = "sentiment_validation_samples"
+
+    id = Column(Integer, primary_key=True)
+
+    # Text content
+    text = Column(Text, nullable=False)
+    source_type = Column(String(20))  # "reddit_post", "reddit_comment", "synthetic"
+    source_id = Column(String(50))  # Reddit ID if applicable
+    subreddit = Column(String(50))  # Subreddit context if applicable
+
+    # Ground truth label (manually verified)
+    true_label = Column(String(10), nullable=False)  # "positive", "negative", "neutral"
+    true_score = Column(Float)  # Optional: manual score estimate (-1.0 to 1.0)
+
+    # Model prediction (calculated on-demand)
+    predicted_label = Column(String(10))
+    predicted_score = Column(Float)
+    prediction_confidence = Column(Float)
+
+    # Metadata
+    labeled_by = Column(String(50), default="manual")  # Who labeled this
+    notes = Column(Text)  # Any notes about this sample
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    validated_at = Column(DateTime)  # When prediction was last validated

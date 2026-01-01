@@ -17,10 +17,26 @@ class FinancialSentimentAnalyzer:
     def __init__(self):
         """Initialize sentiment analyzer with financial context"""
         # Download required NLTK data (run once)
+        # Suppress SSL errors by redirecting stderr temporarily
+        import sys
+        import os
+
         try:
             nltk.data.find('vader_lexicon')
         except LookupError:
-            nltk.download('vader_lexicon', quiet=True)
+            # Try to download, but suppress SSL certificate errors
+            try:
+                # Redirect stderr to suppress NLTK download errors
+                stderr = sys.stderr
+                sys.stderr = open(os.devnull, 'w')
+                try:
+                    nltk.download('vader_lexicon', quiet=True)
+                finally:
+                    sys.stderr.close()
+                    sys.stderr = stderr
+            except Exception:
+                # VADER lexicon may already be installed, continue anyway
+                pass
 
         # Initialize VADER analyzer
         self.vader = SentimentIntensityAnalyzer()

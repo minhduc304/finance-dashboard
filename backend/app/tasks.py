@@ -178,6 +178,13 @@ def collect_market_data(self, tickers=None):
                 db.commit()
                 results.append(ticker)
 
+                # Invalidate cache for this ticker
+                try:
+                    from backend.app.core.cache import invalidate_ticker_cache
+                    invalidate_ticker_cache(ticker)
+                except Exception as cache_error:
+                    logger.warning(f"Cache invalidation failed for {ticker}: {cache_error}")
+
             except Exception as e:
                 logger.error(f"Failed to update {ticker}: {e}")
                 db.rollback()
@@ -511,3 +518,115 @@ def analyze_ticker_sentiment(self, ticker: str):
     except Exception as e:
         logger.error(f"Ticker sentiment analysis failed: {e}")
         raise self.retry(exc=e, countdown=120)
+
+
+@shared_task(bind=True, max_retries=3)
+def collect_alphavantage_data(self):
+    """Collect technical indicators and fundamentals from Alpha Vantage for portfolio holdings"""
+    try:
+        from collectors.alphavantage_collector import AlphaVantageCollector
+        from backend.app.core.database import SessionLocal
+        from backend.app.core.config import settings
+        from backend.app.models import TechnicalIndicator, CompanyFundamentals, Holding
+
+        collector = AlphaVantageCollector(api_key=settings.ALPHA_VANTAGE_API_KEY)
+        db = SessionLocal()
+
+        # Get unique tickers from holdings (limit to avoid hitting API limit)
+        # Free tier: 25 requests/day
+        holdings = db.query(Holding).distinct(Holding.ticker).limit(5).all()
+        tickers = []
+        cash_symbols = ['SEC-C-CAD', 'CASH', 'CAD', 'USD']
+
+        for holding in holdings:
+            if holding.ticker:
+                ticker_upper = holding.ticker.upper()
+                if ticker_upper not in cash_symbols and not ticker_upper.startswith('SEC-'):
+                    tickers.append(ticker_upper)
+
+        if not tickers:
+            logger.info("No valid tickers found for Alpha Vantage collection")
+            db.close()
+            return {"status": "no_tickers"}
+
+        collected_fundamentals = 0
+        collected_indicators = 0
+
+        for ticker in tickers[:5]:  # Limit to 5 tickers to stay within free tier
+            try:
+                logger.info(f"Collecting Alpha Vantage data for {ticker}")
+
+                # Get company fundamentals
+                overview = collector.get_company_overview(ticker)
+
+                if overview and overview.get('ticker'):
+                    fundamental = db.query(CompanyFundamentals).filter_by(ticker=ticker).first()
+                    if not fundamental:
+                        fundamental = CompanyFundamentals(ticker=ticker)
+                        db.add(fundamental)
+
+                    # Update fundamental data
+                    fundamental.name = overview.get('name')
+                    fundamental.description = overview.get('description')
+                    fundamental.peg_ratio = overview.get('peg_ratio')
+                    fundamental.book_value = overview.get('book_value')
+                    fundamental.profit_margin = overview.get('profit_margin')
+                    fundamental.operating_margin = overview.get('operating_margin')
+                    fundamental.return_on_equity = overview.get('return_on_equity')
+                    fundamental.return_on_assets = overview.get('return_on_assets')
+                    fundamental.revenue_ttm = overview.get('revenue_ttm')
+                    fundamental.gross_profit_ttm = overview.get('gross_profit_ttm')
+                    fundamental.ebitda = overview.get('ebitda')
+                    fundamental.analyst_target_price = overview.get('analyst_target_price')
+                    fundamental.moving_avg_50_day = overview.get('50_day_ma')
+                    fundamental.moving_avg_200_day = overview.get('200_day_ma')
+                    fundamental.week_52_high = overview.get('52_week_high')
+                    fundamental.week_52_low = overview.get('52_week_low')
+                    fundamental.revenue_per_share = overview.get('revenue_per_share')
+
+                    db.commit()
+                    collected_fundamentals += 1
+                    logger.info(f"Saved fundamentals for {ticker}")
+
+                # Get RSI indicator (popular technical indicator)
+                rsi_data = collector.get_rsi(ticker)
+
+                if not rsi_data.empty:
+                    # Save latest 30 days of RSI data
+                    for date, row in rsi_data.tail(30).iterrows():
+                        indicator = db.query(TechnicalIndicator).filter_by(
+                            ticker=ticker,
+                            indicator_type='RSI',
+                            date=date
+                        ).first()
+
+                        if not indicator:
+                            indicator = TechnicalIndicator(
+                                ticker=ticker,
+                                indicator_type='RSI',
+                                date=date,
+                                value=float(row['RSI']) if 'RSI' in row else float(row.iloc[0])
+                            )
+                            db.add(indicator)
+
+                    db.commit()
+                    collected_indicators += 1
+                    logger.info(f"Saved RSI indicators for {ticker}")
+
+            except Exception as e:
+                logger.error(f"Error collecting Alpha Vantage data for {ticker}: {e}")
+                db.rollback()
+                continue
+
+        db.close()
+
+        return {
+            "status": "success",
+            "tickers_processed": len(tickers),
+            "fundamentals_collected": collected_fundamentals,
+            "indicators_collected": collected_indicators
+        }
+
+    except Exception as exc:
+        logger.error(f"Alpha Vantage collection failed: {exc}")
+        raise self.retry(exc=exc, countdown=600)

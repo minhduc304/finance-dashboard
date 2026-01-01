@@ -57,5 +57,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.cleanup_old_data",
         "schedule": crontab(hour=2, minute=0),  # Daily at 2 AM
         "options": {"expires": 3600}
+    },
+    "collect-alphavantage-data": {
+        "task": "app.tasks.collect_alphavantage_data",
+        "schedule": crontab(hour='*/6'),  # Every 6 hours (4 times/day to stay within API limits)
+        "options": {"expires": 3600}
     }
 }

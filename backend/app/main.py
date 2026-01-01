@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import market, portfolio, sentiment, insiders
+from app.api import market, portfolio, sentiment, insiders, alphavantage, system
 
 # Configure logging
 logging.basicConfig(
@@ -144,15 +144,21 @@ app.include_router(
     tags=["insiders"]
 )
 
+app.include_router(
+    alphavantage.router,
+    prefix="/api/v1/alphavantage",
+    tags=["alphavantage"]
+)
+
+app.include_router(
+    system.router,
+    prefix="/api/v1/system",
+    tags=["system"]
+)
+
 
 # Error handlers
-@app.exception_handler(404)
-async def not_found_handler(request, exc):
-    return JSONResponse(
-        status_code=404,
-        content={"detail": "Resource not found"}
-    )
-
+# Note: Removed global 404 handler to allow custom HTTPException messages from endpoints
 
 @app.exception_handler(500)
 async def internal_error_handler(request, exc):
