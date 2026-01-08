@@ -32,10 +32,10 @@ A comprehensive personal finance dashboard that integrates multiple data sources
                          │
         ┌────────────────┼────────────────┐
         │                │                │
-┌───────▼──────┐  ┌─────▼─────┐  ┌──────▼──────┐
-│ PostgreSQL   │  │   Redis    │  │   Celery    │
-│  Database    │  │   Cache    │  │   Workers   │
-└──────────────┘  └────────────┘  └──────┬──────┘
+┌───────▼──────┐  ┌─────▼──────┐   ┌──────▼──────┐
+│ PostgreSQL   │  │   Redis    │   │   Celery    │
+│  Database    │  │   Cache    │   │   Workers   │
+└──────────────┘  └────────────┘   └──────┬──────┘
                                           │
                          ┌────────────────┴─────────────────┐
                          │                                  │
