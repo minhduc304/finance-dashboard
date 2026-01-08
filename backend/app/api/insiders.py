@@ -15,6 +15,7 @@ router = APIRouter()
 
 # Response models
 class InsiderTradeResponse(BaseModel):
+    ticker: Optional[str]
     transaction_date: Optional[datetime]
     trade_date: Optional[datetime]
     company_name: Optional[str]
@@ -106,6 +107,55 @@ class TopTradersResponse(BaseModel):
     count: int
     sort_by: str
     traders: List[TopTraderResponse]
+
+class AllInsiderTradesResponse(BaseModel):
+    total_trades: int
+    period_days: int
+    trades: List[InsiderTradeResponse]
+
+
+@router.get("/recent", response_model=AllInsiderTradesResponse)
+async def get_recent_insider_trades(
+    days: int = Query(default=30, description="Number of days of insider trading history"),
+    limit: int = Query(default=100, description="Maximum number of trades to return"),
+    transaction_type: Optional[str] = Query(default=None, description="Filter by transaction type (P=Purchase, S=Sale)"),
+    db: Session = Depends(get_db)
+):
+    """Get recent insider trading data across all stocks"""
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+    query = db.query(InsiderTrade).filter(
+        InsiderTrade.transaction_date >= cutoff_date
+    )
+
+    if transaction_type:
+        query = query.filter(InsiderTrade.transaction_type.like(f"{transaction_type}%"))
+
+    trades = query.order_by(InsiderTrade.transaction_date.desc()).limit(limit).all()
+
+    # Convert SQLAlchemy models to Pydantic response models
+    trade_responses = []
+    for trade in trades:
+        trade_responses.append(InsiderTradeResponse(
+            ticker=trade.ticker,
+            transaction_date=trade.transaction_date,
+            trade_date=trade.trade_date,
+            company_name=trade.company_name,
+            owner_name=trade.owner_name,
+            title=trade.title,
+            transaction_type=trade.transaction_type,
+            last_price=trade.last_price,
+            quantity=trade.quantity,
+            shares_held=trade.shares_held,
+            ownership_percentage=trade.ownership_percentage,
+            value=trade.value
+        ))
+
+    return AllInsiderTradesResponse(
+        total_trades=len(trades),
+        period_days=days,
+        trades=trade_responses
+    )
 
 
 @router.get("/stock/{ticker}", response_model=StockInsiderTradesResponse)

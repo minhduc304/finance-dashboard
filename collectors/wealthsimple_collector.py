@@ -9,7 +9,9 @@ from datetime import datetime, timedelta, timezone
 from ws_api import WealthsimpleAPI, WSAPISession
 from typing import List, Optional, Dict, Any
 
-SESSION_FILE = 'ws_session.json'
+# Use absolute path for session file to ensure consistency across different working directories
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SESSION_FILE = os.path.join(PROJECT_ROOT, 'ws_session.json')
 CACHE_DURATION = timedelta(hours=12)
 
 class WealthsimpleCollector:

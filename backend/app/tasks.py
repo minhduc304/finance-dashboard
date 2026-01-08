@@ -23,13 +23,23 @@ def sync_wealthsimple_portfolios(self):
         from collectors.wealthsimple_collector import WealthsimpleCollector
         from backend.app.core.database import SessionLocal
         from backend.app.models import Portfolio, Holding, Transaction
+        import os
 
         collector = WealthsimpleCollector()
         db = SessionLocal()
 
-        # Authenticate with Wealthsimple (credentials from environment/config)
-        if not collector.authenticate():
-            return {"status": "failed", "error": "Authentication failed"}
+        # Authenticate using saved session token (from ws_session.json)
+        # If no valid session exists, this will fail and skip the sync
+        # To authenticate initially, run: python scripts/wealthsimple_login.py
+        try:
+            if not collector.authenticate():
+                logger.warning("Wealthsimple authentication failed - no valid session token")
+                db.close()
+                return {"status": "skipped", "error": "No valid session. Run interactive login first."}
+        except Exception as auth_error:
+            logger.warning(f"Wealthsimple authentication error: {auth_error}")
+            db.close()
+            return {"status": "skipped", "error": "Authentication failed. Run interactive login first."}
 
         # Collect portfolio data
         portfolio_data = collector.collect_all_data()
@@ -46,29 +56,44 @@ def sync_wealthsimple_portfolios(self):
                 )
                 db.add(portfolio)
 
-            portfolio.total_value = account_data['value']
-            portfolio.cash_balance = account_data['cash_balance']
+            # Don't overwrite total_value and cash_balance here
+            # They will be calculated by update_portfolio_values task
             portfolio.updated_at = datetime.now(timezone.utc)
 
             db.commit()
 
-            # Clear existing holdings for fresh update
-            db.query(Holding).filter_by(portfolio_id=portfolio.id).delete()
-
-            # Save holdings
+            # Update existing holdings or create new ones (don't delete)
+            # This preserves current_price calculated from market data
             for holding_data in portfolio_data['holdings']:
                 if holding_data['account_id'] == account_data['id']:
-                    holding = Holding(
+                    # Find existing holding
+                    holding = db.query(Holding).filter_by(
                         portfolio_id=portfolio.id,
-                        ticker=holding_data['symbol'],
-                        name=holding_data.get('name'),
-                        quantity=holding_data['quantity'],
-                        average_cost=holding_data['average_cost'],
-                        current_price=holding_data['current_price'],
-                        market_value=holding_data['market_value'],
-                        unrealized_gain=holding_data.get('gain_loss', 0)
-                    )
-                    db.add(holding)
+                        ticker=holding_data['symbol']
+                    ).first()
+
+                    if holding:
+                        # Update existing holding - preserve current_price if WS doesn't have it
+                        holding.name = holding_data.get('name') or holding.name
+                        holding.quantity = holding_data['quantity']
+                        holding.average_cost = holding_data['average_cost']
+                        # Only update price if WS has a valid one
+                        if holding_data['current_price'] > 0:
+                            holding.current_price = holding_data['current_price']
+                            holding.market_value = holding_data['market_value']
+                    else:
+                        # Create new holding
+                        holding = Holding(
+                            portfolio_id=portfolio.id,
+                            ticker=holding_data['symbol'],
+                            name=holding_data.get('name'),
+                            quantity=holding_data['quantity'],
+                            average_cost=holding_data['average_cost'],
+                            current_price=holding_data['current_price'],
+                            market_value=holding_data['market_value'],
+                            unrealized_gain=holding_data.get('gain_loss', 0)
+                        )
+                        db.add(holding)
 
             # Save transactions
             for trans_data in portfolio_data['transactions']:
@@ -103,6 +128,10 @@ def sync_wealthsimple_portfolios(self):
 
     except Exception as e:
         logger.error(f"Wealthsimple portfolio sync failed: {e}")
+        try:
+            db.close()
+        except:
+            pass
         raise self.retry(exc=e, countdown=300)
 
 
@@ -172,6 +201,8 @@ def collect_market_data(self, tickers=None):
                             price_data.pop('dividends', None)
                             price_data.pop('stock splits', None)  # Note: space in column name
                             price_data.pop('stock_splits', None)  # Just in case
+                            price_data.pop('capital gains', None)  # ETF distributions
+                            price_data.pop('capital_gains', None)  # Alternative format
                             price = StockPrice(**price_data)
                             db.add(price)
 
@@ -194,6 +225,10 @@ def collect_market_data(self, tickers=None):
 
     except Exception as e:
         logger.error(f"Market data collection failed: {e}")
+        try:
+            db.close()
+        except:
+            pass
         raise self.retry(exc=e, countdown=60)
 
 
@@ -229,6 +264,14 @@ def collect_reddit_sentiment(self):
                     # Collect and save comments
                     comments = collector.collect_comments(post_data['reddit_id'], limit=10)
                     for comment_data in comments:
+                        # Check if comment already exists
+                        existing_comment = db.query(RedditComment).filter_by(
+                            reddit_id=comment_data.get('reddit_id')
+                        ).first()
+
+                        if existing_comment:
+                            continue  # Skip if comment already exists
+
                         # Remove invalid field and create comment with correct mapping
                         if 'post_reddit_id' in comment_data:
                             del comment_data['post_reddit_id']
@@ -268,6 +311,10 @@ def collect_reddit_sentiment(self):
 
     except Exception as e:
         logger.error(f"Reddit sentiment collection failed: {e}")
+        try:
+            db.close()
+        except:
+            pass
         raise self.retry(exc=e, countdown=300)
 
 
@@ -291,7 +338,7 @@ def collect_insider_trading(self):
             existing = db.query(InsiderTrade).filter_by(
                 ticker=trade_data.get('ticker'),
                 owner_name=trade_data.get('insider_name'),  # Map insider_name to owner_name
-                transaction_date=trade_data.get('filing_date')  # Map filing_date to transaction_date
+                transaction_date=trade_data.get('trade_date')  # Use actual trade_date (when trade occurred)
             ).first()
 
             if not existing:
@@ -304,8 +351,8 @@ def collect_insider_trading(self):
                     last_price=trade_data.get('price'),  # Map price to last_price
                     quantity=trade_data.get('quantity'),
                     value=trade_data.get('value'),
-                    transaction_date=trade_data.get('filing_date'),  # Map filing_date to transaction_date
-                    trade_date=trade_data.get('filing_date')  # Use filing_date for trade_date too
+                    transaction_date=trade_data.get('trade_date'),  # Use actual trade_date (when trade occurred)
+                    trade_date=trade_data.get('trade_date')  # Use trade_date (when trade occurred, not filed)
                 )
                 db.add(trade)
                 saved_count += 1
@@ -317,9 +364,89 @@ def collect_insider_trading(self):
 
     except Exception as e:
         logger.error(f"Insider trading collection failed: {e}")
+        try:
+            db.close()
+        except:
+            pass
         raise self.retry(exc=e, countdown=600)
 
 
+
+
+@shared_task(bind=True, max_retries=3)
+def collect_stock_news(self):
+    """Collect news articles for portfolio holdings"""
+    try:
+        from collectors.yfinance_collector import YFinanceCollector
+        from backend.app.core.database import SessionLocal
+        from backend.app.models import StockNews, Holding
+
+        collector = YFinanceCollector()
+        db = SessionLocal()
+
+        # Get unique tickers from holdings
+        holdings = db.query(Holding).all()
+        tickers = set()
+        cash_symbols = ['SEC-C-CAD', 'CASH', 'CAD', 'USD']
+
+        for holding in holdings:
+            if holding.ticker:
+                ticker_upper = holding.ticker.upper()
+                if ticker_upper not in cash_symbols and not ticker_upper.startswith('SEC-'):
+                    tickers.add(holding.ticker)
+
+        if not tickers:
+            logger.info("No tickers found for news collection")
+            db.close()
+            return {"status": "no_tickers"}
+
+        news_collected = 0
+
+        for ticker in tickers:
+            try:
+                # Collect news for this ticker
+                news_items = collector.collect_news(ticker, max_items=5)
+
+                for news_item in news_items:
+                    # Check if news already exists (by link)
+                    existing = db.query(StockNews).filter_by(
+                        link=news_item.get('link')
+                    ).first()
+
+                    if not existing:
+                        news = StockNews(
+                            title=news_item.get('title'),
+                            link=news_item.get('link'),
+                            publisher=news_item.get('publisher'),
+                            primary_ticker=ticker.upper(),
+                            publish_time=news_item.get('publish_time'),
+                            provider_publish_time=news_item.get('publish_time')
+                        )
+                        db.add(news)
+                        news_collected += 1
+
+                db.commit()
+
+            except Exception as e:
+                logger.error(f"Failed to collect news for {ticker}: {e}")
+                db.rollback()
+                continue
+
+        db.close()
+
+        return {
+            "status": "success",
+            "tickers_processed": len(tickers),
+            "news_collected": news_collected
+        }
+
+    except Exception as e:
+        logger.error(f"Stock news collection failed: {e}")
+        try:
+            db.close()
+        except:
+            pass
+        raise self.retry(exc=e, countdown=300)
 
 
 @shared_task(bind=True, max_retries=3)
@@ -335,22 +462,40 @@ def update_portfolio_values(self):
         updated_count = 0
 
         for portfolio in portfolios:
-            total_value = portfolio.cash_balance or 0
+            cash_balance = 0
+            total_holdings_value = 0
+
+            # Cash symbols to identify cash holdings
+            cash_symbols = ['SEC-C-CAD', 'SEC-C-USD', 'CASH', 'CAD', 'USD']
 
             for holding in portfolio.holdings:
-                # Get latest price
-                latest_price = db.query(StockPrice).filter(
-                    StockPrice.ticker == holding.ticker
-                ).order_by(StockPrice.date.desc()).first()
+                ticker_upper = holding.ticker.upper() if holding.ticker else ''
 
-                if latest_price:
-                    holding.current_price = float(latest_price.close)
-                    holding.market_value = float(holding.quantity) * float(latest_price.close)
-                    holding.unrealized_gain = holding.market_value - (float(holding.quantity) * float(holding.average_cost))
-                    total_value += holding.market_value
+                # Check if this is a cash holding
+                is_cash = (ticker_upper in cash_symbols or
+                          ticker_upper.startswith('SEC-') and 'CAD' in ticker_upper or
+                          ticker_upper.startswith('SEC-') and 'USD' in ticker_upper)
 
-            portfolio.total_value = total_value
-            portfolio.total_gain_loss = total_value - portfolio.total_cost
+                if is_cash:
+                    # For cash holdings, market value is just quantity * 1
+                    holding.current_price = 1.0
+                    holding.market_value = float(holding.quantity)
+                    cash_balance += holding.market_value
+                else:
+                    # Get latest price for non-cash holdings
+                    latest_price = db.query(StockPrice).filter(
+                        StockPrice.ticker == holding.ticker
+                    ).order_by(StockPrice.date.desc()).first()
+
+                    if latest_price:
+                        holding.current_price = float(latest_price.close)
+                        holding.market_value = float(holding.quantity) * float(latest_price.close)
+                        holding.unrealized_gain = holding.market_value - (float(holding.quantity) * float(holding.average_cost))
+                        total_holdings_value += holding.market_value
+
+            portfolio.cash_balance = cash_balance
+            portfolio.total_value = cash_balance + total_holdings_value
+            portfolio.total_gain_loss = portfolio.total_value - portfolio.total_cost
             portfolio.updated_at = datetime.now(timezone.utc)
             updated_count += 1
 
@@ -361,6 +506,10 @@ def update_portfolio_values(self):
 
     except Exception as e:
         logger.error(f"Portfolio update failed: {e}")
+        try:
+            db.close()
+        except:
+            pass
         raise self.retry(exc=e, countdown=60)
 
 
@@ -418,6 +567,10 @@ def populate_watchlist_from_holdings(self):
 
     except Exception as e:
         logger.error(f"Watchlist population failed: {e}")
+        try:
+            db.close()
+        except:
+            pass
         raise self.retry(exc=e, countdown=60)
 
 
@@ -439,7 +592,7 @@ def cleanup_old_data():
         # Delete old news
         news_cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         deleted_news = db.query(StockNews).filter(
-            StockNews.published_at < news_cutoff
+            StockNews.publish_time < news_cutoff
         ).delete()
 
         # Delete old reddit posts
@@ -462,6 +615,10 @@ def cleanup_old_data():
 
     except Exception as e:
         logger.error(f"Data cleanup failed: {e}")
+        try:
+            db.close()
+        except:
+            pass
         return {"status": "failed", "error": str(e)}
 
 
@@ -517,6 +674,10 @@ def analyze_ticker_sentiment(self, ticker: str):
 
     except Exception as e:
         logger.error(f"Ticker sentiment analysis failed: {e}")
+        try:
+            db.close()
+        except:
+            pass
         raise self.retry(exc=e, countdown=120)
 
 
@@ -629,4 +790,8 @@ def collect_alphavantage_data(self):
 
     except Exception as exc:
         logger.error(f"Alpha Vantage collection failed: {exc}")
+        try:
+            db.close()
+        except:
+            pass
         raise self.retry(exc=exc, countdown=600)

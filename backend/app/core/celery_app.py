@@ -33,6 +33,11 @@ celery_app.conf.update(
 
 # Scheduled tasks
 celery_app.conf.beat_schedule = {
+    "sync-wealthsimple-portfolios": {
+        "task": "app.tasks.sync_wealthsimple_portfolios",
+        "schedule": timedelta(minutes=5),  # Every 5 minutes
+        "options": {"expires": 240}
+    },
     "collect-market-data": {
         "task": "app.tasks.collect_market_data",
         "schedule": timedelta(minutes=15),  # Every 15 minutes during market hours
@@ -47,6 +52,11 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.collect_insider_trading",
         "schedule": crontab(hour=6, minute=0),  # Daily at 6 AM
         "options": {"expires": 3600}
+    },
+    "collect-stock-news": {
+        "task": "app.tasks.collect_stock_news",
+        "schedule": timedelta(hours=2),  # Every 2 hours
+        "options": {"expires": 1800}
     },
     "update-portfolio-values": {
         "task": "app.tasks.update_portfolio_values",

@@ -3,7 +3,6 @@
 A comprehensive personal finance dashboard that integrates multiple data sources to provide real-time portfolio tracking, market analysis, sentiment insights, and technical indicators for informed investment decisions.
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Phase](https://img.shields.io/badge/phase-3%20complete-blue)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![React](https://img.shields.io/badge/react-18-blue)
 
