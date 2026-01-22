@@ -7,6 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TrendingUp, TrendingDown, RefreshCw, DollarSign } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { marketService } from "@/lib/api/services/market";
+import { sentimentService } from "@/lib/api/services/sentiment";
+import { safePercentageChange, safeDivide, isValidNumber } from "@/lib/utils/calculations";
 
 interface Stock {
   ticker: string;
@@ -40,6 +43,14 @@ interface NewsItem {
   sentiment_score: number;
 }
 
+interface SentimentSummary {
+  total_mentions: number;
+  avg_sentiment: number;
+  positive_count: number;
+  negative_count: number;
+  neutral_count: number;
+}
+
 export default function StockDetailPage() {
   const params = useParams();
   const ticker = params.ticker as string;
@@ -47,32 +58,50 @@ export default function StockDetailPage() {
   const [stock, setStock] = useState<Stock | null>(null);
   const [priceHistory, setPriceHistory] = useState<PriceData[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
+  const [sentiment, setSentiment] = useState<SentimentSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchStockData = async () => {
     setLoading(true);
     try {
-      // Fetch stock info
-      const stockResponse = await fetch(`http://localhost:8000/api/v1/market/stocks/${ticker}`);
-      const stockData = await stockResponse.json();
-      if (!stockData.detail) {
-        setStock(stockData);
+      // Fetch stock info using marketService
+      const stockData = await marketService.getStockInfo(ticker);
+      if (stockData && !('detail' in stockData)) {
+        setStock(stockData as unknown as Stock);
       }
 
-      // Fetch price history
-      const priceResponse = await fetch(`http://localhost:8000/api/v1/market/stocks/${ticker}/price?days=10`);
-      const priceData = await priceResponse.json();
+      // Fetch price history using marketService
+      const priceData = await marketService.getStockPrice(ticker, 10);
       if (Array.isArray(priceData)) {
         // Sort by date ascending for the chart
-        const sortedPrices = priceData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const sortedPrices = priceData.sort((a: PriceData, b: PriceData) =>
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
         setPriceHistory(sortedPrices);
       }
 
-      // Fetch news
-      const newsResponse = await fetch(`http://localhost:8000/api/v1/market/stocks/${ticker}/news`);
-      const newsData = await newsResponse.json();
+      // Fetch news using marketService
+      const newsData = await marketService.getStockNews(ticker, 10);
       if (Array.isArray(newsData)) {
-        setNews(newsData);
+        setNews(newsData as unknown as NewsItem[]);
+      }
+
+      // Fetch sentiment data
+      try {
+        const sentimentData = await sentimentService.getStockSentiment(ticker, 7);
+        if (sentimentData?.sentiment?.length > 0) {
+          // Aggregate sentiment data
+          const summary: SentimentSummary = {
+            total_mentions: sentimentData.sentiment.reduce((sum, s) => sum + (s.total_mentions || 0), 0),
+            avg_sentiment: sentimentData.sentiment.reduce((sum, s) => sum + (s.avg_sentiment || 0), 0) / sentimentData.sentiment.length,
+            positive_count: sentimentData.sentiment.reduce((sum, s) => sum + (s.positive_count || 0), 0),
+            negative_count: sentimentData.sentiment.reduce((sum, s) => sum + (s.negative_count || 0), 0),
+            neutral_count: sentimentData.sentiment.reduce((sum, s) => sum + (s.neutral_count || 0), 0),
+          };
+          setSentiment(summary);
+        }
+      } catch {
+        // Sentiment data may not be available
       }
     } catch (error) {
       console.error("Error fetching stock data:", error);
@@ -116,10 +145,17 @@ export default function StockDetailPage() {
     );
   }
 
-  const latestPrice = priceHistory[priceHistory.length - 1];
-  const previousPrice = priceHistory[priceHistory.length - 2];
-  const priceChange = latestPrice && previousPrice ? latestPrice.close - previousPrice.close : 0;
-  const priceChangePercent = latestPrice && previousPrice ? ((priceChange / previousPrice.close) * 100) : 0;
+  // Safe array access with bounds checking
+  const latestPrice = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1] : null;
+  const previousPrice = priceHistory.length > 1 ? priceHistory[priceHistory.length - 2] : null;
+
+  // Safe price change calculation
+  const priceChange = latestPrice && previousPrice
+    ? latestPrice.close - previousPrice.close
+    : 0;
+  const priceChangePercent = latestPrice && previousPrice && isValidNumber(previousPrice.close) && previousPrice.close !== 0
+    ? safePercentageChange(latestPrice.close, previousPrice.close, 0)
+    : 0;
 
   return (
     <div className="space-y-8">
@@ -286,6 +322,69 @@ export default function StockDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Social Sentiment Section */}
+      {sentiment && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Social Sentiment (Last 7 Days)</CardTitle>
+            <CardDescription>Reddit and social media sentiment for {stock.ticker}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">Total Mentions</p>
+                <p className="text-2xl font-bold">{sentiment.total_mentions.toLocaleString()}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">Avg Sentiment</p>
+                <p className={`text-2xl font-bold ${
+                  sentiment.avg_sentiment > 0.1 ? 'text-green-600' :
+                  sentiment.avg_sentiment < -0.1 ? 'text-red-600' : ''
+                }`}>
+                  {sentiment.avg_sentiment >= 0 ? '+' : ''}{sentiment.avg_sentiment.toFixed(2)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">Positive</p>
+                <p className="text-2xl font-bold text-green-600">{sentiment.positive_count}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">Negative</p>
+                <p className="text-2xl font-bold text-red-600">{sentiment.negative_count}</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-2">
+              <p className="text-sm font-medium text-muted-foreground">Sentiment Distribution</p>
+              <div className="flex h-4 w-full overflow-hidden rounded-full">
+                {sentiment.total_mentions > 0 ? (
+                  <>
+                    <div
+                      className="bg-green-500"
+                      style={{ width: `${(sentiment.positive_count / sentiment.total_mentions) * 100}%` }}
+                    />
+                    <div
+                      className="bg-gray-400"
+                      style={{ width: `${(sentiment.neutral_count / sentiment.total_mentions) * 100}%` }}
+                    />
+                    <div
+                      className="bg-red-500"
+                      style={{ width: `${(sentiment.negative_count / sentiment.total_mentions) * 100}%` }}
+                    />
+                  </>
+                ) : (
+                  <div className="bg-gray-200 w-full" />
+                )}
+              </div>
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Positive ({sentiment.positive_count})</span>
+                <span>Neutral ({sentiment.neutral_count})</span>
+                <span>Negative ({sentiment.negative_count})</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TrendingUp, TrendingDown, RefreshCw, DollarSign, PieChart } from "lucide-react";
 import { portfolioService } from "@/lib/api/services/portfolio";
+import { sentimentService } from "@/lib/api/services/sentiment";
+import { safePercentage, safeDivide, isValidNumber } from "@/lib/utils/calculations";
 
 interface Portfolio {
   id: number;
@@ -31,6 +33,7 @@ interface Holding {
   unrealized_gain: number;
   unrealized_gain_percent: number;
   portfolio_percent: number;
+  sentiment_label?: 'positive' | 'negative' | 'neutral';
 }
 
 interface Transaction {
@@ -70,9 +73,7 @@ export default function PortfolioPage() {
           cash_balance: firstPortfolio.cash_balance,
           invested_value: firstPortfolio.total_cost || firstPortfolio.total_value - firstPortfolio.cash_balance,
           total_return: firstPortfolio.total_gain_loss || 0,
-          total_return_percent: firstPortfolio.total_gain_loss && firstPortfolio.total_cost
-            ? (firstPortfolio.total_gain_loss / firstPortfolio.total_cost * 100)
-            : 0,
+          total_return_percent: safePercentage(firstPortfolio.total_gain_loss, firstPortfolio.total_cost, 0),
           daily_return: 0, // This would need to be calculated from historical data
           daily_return_percent: 0
         });
@@ -80,20 +81,36 @@ export default function PortfolioPage() {
         // Fetch holdings for this portfolio
         try {
           const holdingsData = await portfolioService.getHoldings(firstPortfolio.id);
-          const transformedHoldings = holdingsData.map(h => ({
-            ticker: h.symbol,
-            name: h.symbol, // We'll use symbol as name for now
-            quantity: h.quantity,
-            average_cost: h.average_cost,
-            current_price: h.current_price || h.average_cost,
-            market_value: h.market_value || (h.quantity * (h.current_price || h.average_cost)),
-            unrealized_gain: h.gain_loss || 0,
-            unrealized_gain_percent: h.gain_loss && (h.quantity * h.average_cost)
-              ? (h.gain_loss / (h.quantity * h.average_cost) * 100)
-              : 0,
-            portfolio_percent: h.market_value && firstPortfolio.total_value
-              ? ((h.market_value / firstPortfolio.total_value) * 100)
-              : 0
+          const transformedHoldings = await Promise.all(holdingsData.map(async h => {
+            const costBasis = safeDivide(h.quantity, 1, 0) * safeDivide(h.average_cost, 1, 0);
+            const marketValue = h.market_value || (h.quantity * (h.current_price || h.average_cost));
+
+            // Fetch sentiment for this ticker
+            let sentimentLabel: 'positive' | 'negative' | 'neutral' | undefined;
+            try {
+              const sentimentData = await sentimentService.getStockSentiment(h.symbol, 1);
+              if (sentimentData?.sentiment?.length > 0) {
+                const avgSentiment = sentimentData.sentiment[0].avg_sentiment;
+                if (avgSentiment > 0.1) sentimentLabel = 'positive';
+                else if (avgSentiment < -0.1) sentimentLabel = 'negative';
+                else sentimentLabel = 'neutral';
+              }
+            } catch {
+              // Sentiment data may not be available for all tickers
+            }
+
+            return {
+              ticker: h.symbol,
+              name: h.symbol, // We'll use symbol as name for now
+              quantity: h.quantity,
+              average_cost: h.average_cost,
+              current_price: h.current_price || h.average_cost,
+              market_value: marketValue,
+              unrealized_gain: h.gain_loss || 0,
+              unrealized_gain_percent: safePercentage(h.gain_loss, costBasis, 0),
+              portfolio_percent: safePercentage(marketValue, firstPortfolio.total_value, 0),
+              sentiment_label: sentimentLabel
+            };
           }));
           setHoldings(transformedHoldings);
         } catch (holdingsError) {
@@ -220,7 +237,7 @@ export default function PortfolioPage() {
             <CardContent>
               <div className="text-2xl font-bold">{formatCurrency(portfolio.invested_value)}</div>
               <div className="text-sm text-muted-foreground">
-                {((portfolio.invested_value / portfolio.total_value) * 100).toFixed(1)}% invested
+                {safePercentage(portfolio.invested_value, portfolio.total_value, 0).toFixed(1)}% invested
               </div>
             </CardContent>
           </Card>
@@ -260,6 +277,7 @@ export default function PortfolioPage() {
                 <TableHead>Gain/Loss</TableHead>
                 <TableHead>% Return</TableHead>
                 <TableHead>% of Portfolio</TableHead>
+                <TableHead>Sentiment</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -280,6 +298,24 @@ export default function PortfolioPage() {
                     {holding.unrealized_gain_percent >= 0 ? "+" : ""}{holding.unrealized_gain_percent.toFixed(2)}%
                   </TableCell>
                   <TableCell>{holding.portfolio_percent.toFixed(1)}%</TableCell>
+                  <TableCell>
+                    {holding.sentiment_label ? (
+                      <Badge
+                        variant="outline"
+                        className={
+                          holding.sentiment_label === 'positive'
+                            ? 'bg-green-500/10 text-green-600 border-green-500/20'
+                            : holding.sentiment_label === 'negative'
+                            ? 'bg-red-500/10 text-red-600 border-red-500/20'
+                            : 'bg-gray-500/10 text-gray-600 border-gray-500/20'
+                        }
+                      >
+                        {holding.sentiment_label.charAt(0).toUpperCase() + holding.sentiment_label.slice(1)}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">N/A</span>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

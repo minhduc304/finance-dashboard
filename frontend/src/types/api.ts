@@ -91,6 +91,7 @@ export interface TrendingResponse {
 
 // Insider trading types
 export interface InsiderTrade {
+  ticker?: string;
   transaction_date?: string;
   trade_date?: string;
   company_name?: string;
@@ -109,6 +110,12 @@ export interface StockInsiderTradesResponse {
   period_days: number;
   transaction_type_filter?: string;
   total_trades: number;
+  trades: InsiderTrade[];
+}
+
+export interface AllInsiderTradesResponse {
+  total_trades: number;
+  period_days: number;
   trades: InsiderTrade[];
 }
 

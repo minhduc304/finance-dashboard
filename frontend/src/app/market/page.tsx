@@ -59,28 +59,34 @@ export default function MarketPage() {
           .sort((a: any, b: any) => b.market_cap - a.market_cap);
 
         setStocks(transformedStocks);
-      } else {
-        console.error("Failed to fetch stocks");
-        setStocks([]);
-      }
 
-      // Fetch news for the first ticker
-      try {
-        const newsResponse = await marketService.getStockNews("AAPL", 5);
-        if (newsResponse && newsResponse.articles) {
-          const transformedNews = newsResponse.articles.map(article => ({
-            title: article.title,
-            publisher: article.publisher || "Unknown",
-            publish_time: article.publish_time || new Date().toISOString(),
-            sentiment_label: article.sentiment_label || "neutral",
-            sentiment_score: article.sentiment_score || 0
-          }));
-          setNews(transformedNews);
+        // Fetch news for the top stock by market cap (first in sorted list)
+        if (transformedStocks.length > 0) {
+          try {
+            const topTicker = transformedStocks[0].ticker;
+            const newsResponse = await marketService.getStockNews(topTicker, 5);
+            if (newsResponse && newsResponse.articles) {
+              const transformedNews = newsResponse.articles.map(article => ({
+                title: article.title,
+                publisher: article.publisher || "Unknown",
+                publish_time: article.publish_time || new Date().toISOString(),
+                sentiment_label: article.sentiment_label || "neutral",
+                sentiment_score: article.sentiment_score || 0
+              }));
+              setNews(transformedNews);
+            } else {
+              setNews([]);
+            }
+          } catch (newsError) {
+            console.error("Error fetching news:", newsError);
+            setNews([]);
+          }
         } else {
           setNews([]);
         }
-      } catch (newsError) {
-        console.error("Error fetching news:", newsError);
+      } else {
+        console.error("Failed to fetch stocks");
+        setStocks([]);
         setNews([]);
       }
     } catch (error) {

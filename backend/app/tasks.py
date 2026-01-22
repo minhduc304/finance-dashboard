@@ -342,6 +342,16 @@ def collect_insider_trading(self):
             ).first()
 
             if not existing:
+                # Get shares_owned and delta_owned from scraped data
+                shares_held = trade_data.get('shares_owned')
+                delta_owned = trade_data.get('delta_owned')  # % change in ownership
+
+                # delta_owned from OpenInsider is the percentage change (e.g., +5 means 5% increase)
+                # Store it as ownership_percentage if it's a reasonable value
+                ownership_pct = None
+                if delta_owned is not None and delta_owned != 0 and abs(delta_owned) < 100:
+                    ownership_pct = abs(delta_owned)
+
                 trade = InsiderTrade(
                     ticker=trade_data.get('ticker'),
                     company_name=trade_data.get('company_name'),
@@ -351,6 +361,8 @@ def collect_insider_trading(self):
                     last_price=trade_data.get('price'),  # Map price to last_price
                     quantity=trade_data.get('quantity'),
                     value=trade_data.get('value'),
+                    shares_held=shares_held,  # Total shares held after transaction
+                    ownership_percentage=ownership_pct,  # Ownership percentage change
                     transaction_date=trade_data.get('trade_date'),  # Use actual trade_date (when trade occurred)
                     trade_date=trade_data.get('trade_date')  # Use trade_date (when trade occurred, not filed)
                 )

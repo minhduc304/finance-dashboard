@@ -106,17 +106,16 @@ async def get_trending_sentiment(
 ):
     """Get trending stocks by sentiment mentions"""
     try:
-        from sqlalchemy import func, desc
+        from sqlalchemy import func, desc, cast, String
 
         period_days = {"24h": 1, "7d": 7, "30d": 30}.get(period, 1)
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=period_days)
 
+        # Get trending tickers from StockSentiment
         trending = db.query(
             StockSentiment.ticker,
             func.sum(StockSentiment.total_mentions).label('total_mentions'),
-            func.avg(StockSentiment.avg_sentiment).label('avg_sentiment'),
-            func.sum(StockSentiment.positive_count).label('positive_total'),
-            func.sum(StockSentiment.negative_count).label('negative_total')
+            func.avg(StockSentiment.avg_sentiment).label('avg_sentiment')
         ).filter(
             StockSentiment.date >= cutoff_date
         ).group_by(
@@ -125,21 +124,34 @@ async def get_trending_sentiment(
             desc('total_mentions')
         ).limit(limit).all()
 
-        stocks = [
-            TrendingSentimentStock(
-                ticker=stock.ticker,
+        # For each trending ticker, get actual positive/negative counts from RedditPost
+        stocks = []
+        for stock in trending:
+            ticker = stock.ticker
+            # Count positive and negative posts mentioning this ticker
+            # Search in mentioned_tickers JSON array (cast to text) or in title/content
+            positive_count = db.query(func.count(RedditPost.id)).filter(
+                RedditPost.sentiment_label == 'positive',
+                cast(RedditPost.mentioned_tickers, String).ilike(f'%"{ticker}"%')
+            ).scalar() or 0
+
+            negative_count = db.query(func.count(RedditPost.id)).filter(
+                RedditPost.sentiment_label == 'negative',
+                cast(RedditPost.mentioned_tickers, String).ilike(f'%"{ticker}"%')
+            ).scalar() or 0
+
+            stocks.append(TrendingSentimentStock(
+                ticker=ticker,
                 total_mentions=int(stock.total_mentions),
                 avg_sentiment=float(stock.avg_sentiment) if stock.avg_sentiment else 0,
-                positive_mentions=int(stock.positive_total),
-                negative_mentions=int(stock.negative_total),
+                positive_mentions=positive_count,
+                negative_mentions=negative_count,
                 sentiment_ratio=(
-                    float(stock.positive_total) / float(stock.negative_total)
-                    if stock.negative_total and stock.negative_total > 0
+                    float(positive_count) / float(negative_count)
+                    if negative_count and negative_count > 0
                     else None
                 )
-            )
-            for stock in trending
-        ]
+            ))
 
         return TrendingSentimentResponse(
             period=period,
@@ -163,13 +175,18 @@ async def get_stock_posts(
     db: Session = Depends(get_db)
 ):
     """Get recent Reddit posts mentioning a specific stock"""
-    from sqlalchemy import or_
+    from sqlalchemy import or_, cast, String, text
 
+    ticker_upper = ticker.upper()
+
+    # For JSON column, we need to cast to text and use LIKE, or check if ticker is in the array
+    # Using text-based search since mentioned_tickers is JSON (not JSONB)
     query = db.query(RedditPost).filter(
         or_(
-            RedditPost.mentioned_tickers.contains([ticker.upper()]),
-            RedditPost.title.contains(ticker.upper()),
-            RedditPost.content.contains(ticker.upper())
+            # Cast JSON to text and search for the ticker
+            cast(RedditPost.mentioned_tickers, String).ilike(f'%"{ticker_upper}"%'),
+            RedditPost.title.ilike(f'%{ticker_upper}%'),
+            RedditPost.content.ilike(f'%{ticker_upper}%')
         )
     )
 
@@ -209,34 +226,62 @@ async def get_sentiment_summary(
 ):
     """Get overall sentiment summary across all stocks"""
     try:
-        from sqlalchemy import func
+        from sqlalchemy import func, Integer
+        from sqlalchemy.sql.expression import cast as sql_cast
 
         today = datetime.now(timezone.utc).date()
 
+        # Get sentiment data from StockSentiment (for total_mentions and avg_sentiment)
         today_sentiment = db.query(
             func.sum(StockSentiment.total_mentions).label('total_mentions'),
-            func.sum(StockSentiment.positive_count).label('positive'),
-            func.sum(StockSentiment.negative_count).label('negative'),
-            func.sum(StockSentiment.neutral_count).label('neutral'),
             func.avg(StockSentiment.avg_sentiment).label('avg_sentiment')
         ).filter(
             func.date(StockSentiment.date) == today
         ).first()
 
-        posts_today = db.query(func.count(RedditPost.id)).filter(
-            func.date(RedditPost.created_utc) == today
-        ).scalar() or 0
+        # Get actual breakdown counts directly from RedditPost table
+        # Use last 24 hours instead of just today to ensure we have data
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
 
-        avg_sentiment = float(today_sentiment.avg_sentiment) if today_sentiment.avg_sentiment else 0
+        post_breakdown = db.query(
+            func.count(RedditPost.id).label('total'),
+            func.sum(sql_cast(RedditPost.sentiment_label == 'positive', Integer)).label('positive'),
+            func.sum(sql_cast(RedditPost.sentiment_label == 'negative', Integer)).label('negative'),
+            func.sum(sql_cast(RedditPost.sentiment_label == 'neutral', Integer)).label('neutral'),
+            func.avg(RedditPost.sentiment_score).label('avg_score')
+        ).filter(
+            RedditPost.scraped_at >= cutoff_time
+        ).first()
+
+        # If no recent posts, get overall stats
+        if not post_breakdown or not post_breakdown.total:
+            post_breakdown = db.query(
+                func.count(RedditPost.id).label('total'),
+                func.sum(sql_cast(RedditPost.sentiment_label == 'positive', Integer)).label('positive'),
+                func.sum(sql_cast(RedditPost.sentiment_label == 'negative', Integer)).label('negative'),
+                func.sum(sql_cast(RedditPost.sentiment_label == 'neutral', Integer)).label('neutral'),
+                func.avg(RedditPost.sentiment_score).label('avg_score')
+            ).first()
+
+        total_posts = int(post_breakdown.total) if post_breakdown.total else 0
+        positive_count = int(post_breakdown.positive) if post_breakdown.positive else 0
+        negative_count = int(post_breakdown.negative) if post_breakdown.negative else 0
+        neutral_count = int(post_breakdown.neutral) if post_breakdown.neutral else 0
+
+        # Use post average if StockSentiment doesn't have data
+        avg_sentiment = float(today_sentiment.avg_sentiment) if today_sentiment and today_sentiment.avg_sentiment else (
+            float(post_breakdown.avg_score) if post_breakdown and post_breakdown.avg_score else 0
+        )
+        total_mentions = int(today_sentiment.total_mentions) if today_sentiment and today_sentiment.total_mentions else total_posts
 
         return SentimentSummaryResponse(
             date=today.isoformat(),
-            total_mentions=int(today_sentiment.total_mentions) if today_sentiment.total_mentions else 0,
-            total_posts=posts_today,
+            total_mentions=total_mentions,
+            total_posts=total_posts,
             sentiment_breakdown=SentimentBreakdown(
-                positive=int(today_sentiment.positive) if today_sentiment.positive else 0,
-                negative=int(today_sentiment.negative) if today_sentiment.negative else 0,
-                neutral=int(today_sentiment.neutral) if today_sentiment.neutral else 0
+                positive=positive_count,
+                negative=negative_count,
+                neutral=neutral_count
             ),
             avg_sentiment=avg_sentiment,
             market_mood=(
